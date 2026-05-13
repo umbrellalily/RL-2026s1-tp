@@ -1,0 +1,9 @@
+torch>=2.1
+torchrl>=0.4
+tensordict>=0.4
+pettingzoo>=1.24
+gymnasium>=0.29
+numpy
+tensorboard
+matplotlib
+pillow
