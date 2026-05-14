@@ -7,10 +7,12 @@ Differences from eval.py:
   - --comm-fail-prob lets you simulate communication loss at eval time
 
 Examples:
-    python eval_comm.py --ckpt checkpoints_comm/ckpt_60.pt
-    python eval_comm.py --ckpt checkpoints_comm/ckpt_60.pt --render
-    python eval_comm.py --ckpt checkpoints_comm/ckpt_60.pt --save-gif demo_comm.gif --shape I
-    python eval_comm.py --ckpt checkpoints_comm/ckpt_60.pt --comm-fail-prob 0.2
+    python comm_eval.py --ckpt checkpoints_comm/ckpt_60.pt
+    python comm_eval.py --ckpt checkpoints_comm/ckpt_60.pt --render
+    python comm_eval.py --ckpt checkpoints_comm/ckpt_60.pt --save-gif demo_comm.gif --shape I
+    python comm_eval.py --ckpt checkpoints_comm/ckpt_60.pt --comm-fail-prob 0.2
+    python comm_eval.py --ckpt checkpoints_comm_10drones/ckpt_240.pt --save-gif demo_10drones.gif --shape all
+
 """
 from __future__ import annotations
 
@@ -192,7 +194,7 @@ def main() -> None:
         type=str,
         default=None,
         help=f"force target shape for the demo episode "
-        f"(one of {list(SHAPES)}); default: random",
+        f"(one of {list(SHAPES)} or 'all'); default: random",
     )
     parser.add_argument(
         "--comm-fail-prob", type=float, default=0.0,
@@ -271,38 +273,50 @@ def main() -> None:
     # ---- Visualization (one episode) ----
     if args.render or args.save_gif:
         # Optionally pin demo to a chosen shape
-        if args.shape is not None:
+        demo_shapes = [None]
+        if args.shape == "all":
+            demo_shapes = list(SHAPES)
+        elif args.shape is not None:
             if args.shape not in SHAPES:
-                raise SystemExit(f"--shape must be one of {list(SHAPES)}")
-            demo_env, demo_base = make_env(
-                seed=args.seed + 1,
-                device=device,
-                target_shapes=[args.shape],
-                comm_fail_prob=args.comm_fail_prob,
+                raise SystemExit(f"--shape must be one of {list(SHAPES)} or 'all'")
+            demo_shapes = [args.shape]
+
+        for s_idx, shape_val in enumerate(demo_shapes):
+            if shape_val is not None:
+                demo_env, demo_base = make_env(
+                    seed=args.seed + s_idx + 1,
+                    device=device,
+                    target_shapes=[shape_val],
+                    comm_fail_prob=args.comm_fail_prob,
+                )
+            else:
+                demo_env, demo_base = env, base
+            
+            demo = rollout(
+                demo_env, demo_base, actor, exploration,
+                max_steps=demo_base.max_steps, record=True,
             )
-        else:
-            demo_env, demo_base = env, base
-        demo = rollout(
-            demo_env, demo_base, actor, exploration,
-            max_steps=demo_base.max_steps, record=True,
-        )
-        print(
-            f"\n=== Demo episode: target='{demo['shape']}', "
-            f"success={demo['success']}, reward={demo['total_reward']:+.2f}, "
-            f"steps={demo['steps']} ==="
-        )
-        if args.render:
-            for step, positions in enumerate(demo["history"]):
-                print(f"\nstep {step}/{len(demo['history']) - 1}  "
-                      f"target='{demo['shape']}'")
-                print(render_ascii(demo_base, positions))
-                time.sleep(args.render_delay)
-        if args.save_gif:
-            out = Path(args.save_gif)
-            if out.parent != Path(""):
-                out.parent.mkdir(parents=True, exist_ok=True)
-            save_gif(demo_base, demo["history"], out)
-            print(f"\nSaved GIF -> {out}")
+            print(
+                f"\n=== Demo episode: target='{demo['shape']}', "
+                f"success={demo['success']}, reward={demo['total_reward']:+.2f}, "
+                f"steps={demo['steps']} ==="
+            )
+            if args.render:
+                for step, positions in enumerate(demo["history"]):
+                    print(f"\nstep {step}/{len(demo['history']) - 1}  "
+                          f"target='{demo['shape']}'")
+                    print(render_ascii(demo_base, positions))
+                    time.sleep(args.render_delay)
+            if args.save_gif:
+                out_path = Path(args.save_gif)
+                if args.shape == "all":
+                    out = out_path.parent / f"{out_path.stem}_{demo['shape']}{out_path.suffix}"
+                else:
+                    out = out_path
+                if out.parent != Path(""):
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                save_gif(demo_base, demo["history"], out)
+                print(f"\nSaved GIF -> {out}")
 
     sys.stdout = _orig_stdout
     _eval_log.close()

@@ -28,6 +28,7 @@ from collections import Counter
 from itertools import permutations
 
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 from gymnasium import spaces
 from pettingzoo import ParallelEnv
 
@@ -232,32 +233,23 @@ class ShapeFormationEnv(ParallelEnv):
 
     # Helpers ----------------------------------------------------------------
     def _compute_assignment(self) -> dict[str, tuple[int, int]]:
-        """Optimal 1:1 drone<->target assignment via brute-force Hungarian.
-
-        Picks the permutation of target_cells that minimizes total L1 cost
-        from current agent_pos. Future extension point: weight the cost by
-        battery state, urgency, etc.
-        """
+        """Optimal 1:1 drone<->target assignment via Hungarian algorithm."""
         drones = [self.agent_pos[a] for a in self.possible_agents]
         targets = self.target_cells
         n = len(drones)
-        best_cost = float("inf")
-        best_perm: tuple[int, ...] = tuple(range(n))
-        for perm in permutations(range(n)):
-            cost = 0
-            for i, j in enumerate(perm):
-                dr, dc = drones[i]
+        
+        # Build cost matrix
+        cost_matrix = np.zeros((n, n), dtype=np.float32)
+        for i in range(n):
+            dr, dc = drones[i]
+            for j in range(n):
                 tr, tc = targets[j]
-                cost += abs(dr - tr) + abs(dc - tc)
-                if cost >= best_cost:
-                    break
-            else:
-                # only reached if inner loop didn't break early
-                if cost < best_cost:
-                    best_cost = cost
-                    best_perm = perm
+                cost_matrix[i, j] = abs(dr - tr) + abs(dc - tc)
+                
+        row_ind, col_ind = linear_sum_assignment(cost_matrix)
+        
         return {
-            self.possible_agents[i]: targets[best_perm[i]] for i in range(n)
+            self.possible_agents[i]: targets[col_ind[i]] for i in range(n)
         }
 
     def _all_obs(self) -> dict[str, np.ndarray]:
