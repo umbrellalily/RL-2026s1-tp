@@ -3,11 +3,9 @@ position broadcast ("night mode" drone show).
 
 Setup
 -----
-- 15x15 grid, 5 drones, actions = {stay, up, down, left, right}.
-- Each episode samples a random target shape from `target_shapes`. Five-cell
-  shapes are defined in `SHAPES` below. Cells are spaced 2 apart (one empty
-  cell between adjacent shape cells) so drones don't have to crowd at
-  targets.
+- 15x15 grid, 10 drones, actions = {stay, up, down, left, right}.
+- Each episode samples a random target shape from `target_shapes`. Ten-cell
+  shapes are defined in `SHAPES` below.
 - Drones cannot see each other visually (night). They share their own GPS
   positions over a broadcast channel; each link may fail with prob
   `comm_fail_prob` (per receiver, per sender, per step).
@@ -43,17 +41,16 @@ MOVES: dict[int, tuple[int, int]] = {
 }
 
 
-# Five-cell target shapes on a 15x15 grid, centered around (7, 7). Cells are
-# spaced 2 apart (1 empty cell between adjacent shape cells) so drones don't
-# have to crowd. All shapes use exactly 5 cells, pre-sorted (row, col)
-# ascending so the observation vector has a canonical ordering across shapes.
+# Ten-cell target shapes on a 15x15 grid, centered around (7, 7). All shapes
+# use exactly 10 cells, pre-sorted (row, col) ascending so the observation
+# vector has a canonical ordering across shapes.
 SHAPES: dict[str, list[tuple[int, int]]] = {
-    "I": [(3, 7), (5, 7), (7, 7), (9, 7), (11, 7)],   # vertical bar
-    "-": [(7, 3), (7, 5), (7, 7), (7, 9), (7, 11)],   # horizontal bar
-    "L": [(5, 7), (7, 7), (9, 7), (11, 7), (11, 9)],
-    "T": [(5, 5), (5, 7), (5, 9), (7, 7), (9, 7)],
-    "+": [(5, 7), (7, 5), (7, 7), (7, 9), (9, 7)],
-    "X": [(5, 5), (5, 9), (7, 7), (9, 5), (9, 9)],
+    "I": [(3, 7), (4, 7), (5, 7), (6, 7), (7, 7), (8, 7), (9, 7), (10, 7), (11, 7), (12, 7)],
+    "-": [(7, 3), (7, 4), (7, 5), (7, 6), (7, 7), (7, 8), (7, 9), (7, 10), (7, 11), (7, 12)],
+    "L": [(3, 5), (4, 5), (5, 5), (6, 5), (7, 5), (8, 5), (9, 5), (9, 6), (9, 7), (9, 8)],
+    "T": [(4, 5), (4, 6), (4, 7), (4, 8), (4, 9), (5, 7), (6, 7), (7, 7), (8, 7), (9, 7)],
+    "+": [(4, 7), (5, 7), (6, 7), (7, 5), (7, 6), (7, 7), (7, 8), (7, 9), (8, 7), (9, 7)],
+    "X": [(4, 4), (5, 5), (5, 9), (6, 6), (6, 8), (7, 7), (8, 6), (8, 8), (9, 5), (9, 9)],
 }
 
 
@@ -63,7 +60,7 @@ class ShapeFormationEnv(ParallelEnv):
     def __init__(
         self,
         grid_size: int = 15,
-        n_agents: int = 5,
+        n_agents: int = 10,
         max_steps: int = 150,
         target_shapes: list[str] | None = None,
         comm_fail_prob: float = 0.0,
