@@ -1,25 +1,15 @@
-"""Evaluate a MAPPO policy trained on the comm-based env (multi-shape, night mode).
-
-Differences from eval.py:
-  - imports ShapeFormationEnv from env_comm
-  - reports per-shape success rate (since training is multi-shape)
-  - --shape flag lets you pick a fixed target shape for the demo episode
-  - --comm-fail-prob lets you simulate communication loss at eval time
+"""Evaluate a MAPPO policy trained on the formation-path comm environment.
 
 Examples:
-    python comm_eval.py --ckpt checkpoints_comm/ckpt_60.pt
-    python comm_eval.py --ckpt checkpoints_comm/ckpt_60.pt --render
-    python comm_eval.py --ckpt checkpoints_comm/ckpt_60.pt --save-gif demo_comm.gif --shape I
-    python comm_eval.py --ckpt checkpoints_comm/ckpt_60.pt --comm-fail-prob 0.2
-    python comm_eval.py --ckpt checkpoints_comm_10drones/ckpt_240.pt --save-gif demo_10drones.gif --shape all
-
+    python comm_eval.py --ckpt checkpoints_comm/ckpt_60.pt --shapes GROUND,X --greedy
+    python comm_eval.py --ckpt checkpoints_comm/ckpt_60.pt --render --shapes GROUND,+,X
+    python comm_eval.py --ckpt checkpoints_comm/ckpt_60.pt --save-gif demo.gif --shapes GROUND,+,X,I,-
 """
 from __future__ import annotations
 
 import argparse
 import sys
 import time
-from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -30,7 +20,8 @@ from torchrl.envs.libs.pettingzoo import PettingZooWrapper
 from torchrl.envs.utils import ExplorationType, set_exploration_type, step_mdp
 from torchrl.modules import MultiAgentMLP, ProbabilisticActor
 
-from comm_env import SHAPES, ShapeFormationEnv
+from comm_env import ShapeFormationEnv
+from formation_seq import available_shape_names
 
 GROUP = "drone"
 
@@ -42,12 +33,12 @@ class _Tee:
         self._streams = streams
 
     def write(self, data):
-        for s in self._streams:
-            s.write(data)
+        for stream in self._streams:
+            stream.write(data)
 
     def flush(self):
-        for s in self._streams:
-            s.flush()
+        for stream in self._streams:
+            stream.flush()
 
 
 def build_actor(obs_dim, n_actions, n_agents, hidden, device):
@@ -76,9 +67,9 @@ def build_actor(obs_dim, n_actions, n_agents, hidden, device):
     )
 
 
-def make_env(seed, device, target_shapes, comm_fail_prob):
+def make_env(seed, device, shapes, comm_fail_prob):
     base = ShapeFormationEnv(
-        target_shapes=target_shapes,
+        shapes=shapes,
         comm_fail_prob=comm_fail_prob,
         shaping_coef=0.0,
     )
@@ -93,14 +84,25 @@ def make_env(seed, device, target_shapes, comm_fail_prob):
     return env, base
 
 
+def _snapshot_frame(base):
+    return {
+        "positions": dict(base.agent_pos),
+        "target_cells": list(base.target_cells),
+        "target_shape": base.target_shape_name,
+        "stage_idx": base.stage_idx,
+        "num_stages": len(base.formation_path.targets),
+        "stages_completed": base.stage_done_count,
+        "shapes_path": base.formation_path.label,
+    }
+
+
 def rollout(env, base, actor, exploration, max_steps, record=False):
     td = env.reset()
-    history = [dict(base.agent_pos)] if record else None
+    history = [_snapshot_frame(base)] if record else None
     total_reward = 0.0
     steps = 0
     collisions = 0
     success = False
-    shape_name = base.target_shape_name
 
     for _ in range(max_steps):
         with set_exploration_type(exploration), torch.no_grad():
@@ -109,7 +111,7 @@ def rollout(env, base, actor, exploration, max_steps, record=False):
         steps += 1
         collisions += base.last_collision_count
         if record:
-            history.append(dict(base.agent_pos))
+            history.append(_snapshot_frame(base))
         total_reward += float(td.get(("next", GROUP, "reward")).mean().item())
 
         if bool(td.get(("next", GROUP, "done")).all().item()):
@@ -122,47 +124,53 @@ def rollout(env, base, actor, exploration, max_steps, record=False):
         "total_reward": total_reward,
         "steps": steps,
         "collisions": collisions,
-        "shape": shape_name,
+        "stages_completed": base.stage_done_count,
+        "num_stages": len(base.formation_path.targets),
+        "shapes": base.formation_path.label,
+        "final_target": base.target_shape_name,
         "history": history,
     }
 
 
-def render_ascii(base, positions):
-    grid = [["."] * base.grid_size for _ in range(base.grid_size)]
-    for r, c in base.target_cells:
+def render_ascii(grid_size, target_cells, positions):
+    grid = [["."] * grid_size for _ in range(grid_size)]
+    for r, c in target_cells:
         grid[r][c] = "x"
-    for a, (r, c) in positions.items():
-        grid[r][c] = a[-1]
+    for agent, (r, c) in positions.items():
+        grid[r][c] = agent[-1]
     return "\n".join("".join(row) for row in grid)
 
 
-def save_gif(base, history, path: Path, fps: int = 4) -> None:
+def save_gif(grid_size: int, history, path: Path, fps: int = 4) -> None:
     import matplotlib.patches as patches
     import matplotlib.pyplot as plt
     from matplotlib.animation import FuncAnimation, PillowWriter
 
-    g = base.grid_size
     fig, ax = plt.subplots(figsize=(5, 5))
     cmap = plt.get_cmap("tab10")
-    shape_name = base.target_shape_name
 
     def draw(step: int) -> None:
+        frame = history[step]
         ax.clear()
-        ax.set_xlim(-0.5, g - 0.5)
-        ax.set_ylim(-0.5, g - 0.5)
+        ax.set_xlim(-0.5, grid_size - 0.5)
+        ax.set_ylim(-0.5, grid_size - 0.5)
         ax.invert_yaxis()
-        ax.set_xticks(range(g))
-        ax.set_yticks(range(g))
+        ax.set_xticks(range(grid_size))
+        ax.set_yticks(range(grid_size))
         ax.grid(True, color="lightgray", linewidth=0.5)
         ax.set_aspect("equal")
-        ax.set_title(f"target='{shape_name}'   step {step}/{len(history) - 1}")
-        for (r, c) in base.target_cells:
+        ax.set_title(
+            f"{frame['shapes_path']} | stage "
+            f"{frame['stage_idx'] + 1}/{frame['num_stages']} "
+            f"target='{frame['target_shape']}' | step {step}/{len(history) - 1}"
+        )
+        for (r, c) in frame["target_cells"]:
             ax.add_patch(
                 patches.Rectangle(
                     (c - 0.5, r - 0.5), 1, 1, facecolor="#ffe0e0", edgecolor="none"
                 )
             )
-        for i, (_agent, (r, c)) in enumerate(history[step].items()):
+        for i, (_agent, (r, c)) in enumerate(frame["positions"].items()):
             ax.add_patch(
                 patches.Circle(
                     (c, r), 0.35, facecolor=cmap(i), edgecolor="black", linewidth=1.0
@@ -187,18 +195,20 @@ def main() -> None:
     parser.add_argument("--hidden", type=int, default=128)
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument(
-        "--greedy", action="store_true", help="argmax (default: sample)"
+        "--greedy", action="store_true", help="argmax action selection (default: sample)"
     )
     parser.add_argument(
-        "--shape",
+        "--shapes",
         type=str,
-        default=None,
-        help=f"force target shape for the demo episode "
-        f"(one of {list(SHAPES)} or 'all'); default: random",
+        default="GROUND,X",
+        help=(
+            "Comma-separated formation path, e.g. 'GROUND,X' or 'GROUND,+,X,I,-'. "
+            f"Available names: {available_shape_names()}"
+        ),
     )
     parser.add_argument(
         "--comm-fail-prob", type=float, default=0.0,
-        help="evaluate under simulated communication loss"
+        help="evaluate under simulated communication loss",
     )
     parser.add_argument("--render", action="store_true")
     parser.add_argument("--render-delay", type=float, default=0.3)
@@ -211,22 +221,22 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Set up stdout tee so all eval output is mirrored to a text file.
+    shapes = [s.strip() for s in args.shapes.split(",") if s.strip()]
+
     out_path = Path(args.out) if args.out else Path(f"eval_{Path(args.ckpt).stem}.txt")
     if out_path.parent != Path(""):
         out_path.parent.mkdir(parents=True, exist_ok=True)
-    _eval_log = open(out_path, "w", encoding="utf-8")
-    _orig_stdout = sys.stdout
-    sys.stdout = _Tee(_orig_stdout, _eval_log)
+    eval_log = open(out_path, "w", encoding="utf-8")
+    orig_stdout = sys.stdout
+    sys.stdout = _Tee(orig_stdout, eval_log)
 
     device = torch.device(args.device)
     torch.manual_seed(args.seed)
 
-    # ---- env for quantitative eval: all shapes ----
     env, base = make_env(
         seed=args.seed,
         device=device,
-        target_shapes=list(SHAPES),
+        shapes=shapes,
         comm_fail_prob=args.comm_fail_prob,
     )
     actor = build_actor(base.obs_dim, 5, base.n_agents, args.hidden, device)
@@ -238,88 +248,57 @@ def main() -> None:
 
     exploration = ExplorationType.MODE if args.greedy else ExplorationType.RANDOM
 
-    # ---- Quantitative evaluation, broken down per shape ----
-    by_shape: dict[str, list[dict]] = defaultdict(list)
+    runs = []
     for _ in range(args.n_episodes):
-        r = rollout(env, base, actor, exploration, max_steps=base.max_steps)
-        by_shape[r["shape"]].append(r)
+        runs.append(rollout(env, base, actor, exploration, max_steps=base.max_steps))
 
+    successes = sum(run["success"] for run in runs)
     print(
         f"=== Eval over {args.n_episodes} episodes "
         f"({'greedy' if args.greedy else 'stochastic'}, "
         f"comm_fail_prob={args.comm_fail_prob}) ==="
     )
-    all_runs = [r for runs in by_shape.values() for r in runs]
-    successes_total = sum(r["success"] for r in all_runs)
-    print(f"  Overall success rate     : {successes_total / len(all_runs):.1%}")
-    print(f"  Overall mean reward      : "
-          f"{np.mean([r['total_reward'] for r in all_runs]):+.3f}")
-    print(f"  Overall mean ep length   : "
-          f"{np.mean([r['steps'] for r in all_runs]):.1f}")
-    print(f"  Overall mean collisions  : "
-          f"{np.mean([r['collisions'] for r in all_runs]):.2f}")
-    print()
-    print("  Per-shape breakdown:")
-    print(f"  {'shape':<7}{'N':>5}{'success':>10}{'reward':>10}{'len':>7}{'coll':>7}")
-    for shape in sorted(by_shape):
-        runs = by_shape[shape]
-        n = len(runs)
-        sr = sum(r["success"] for r in runs) / n
-        mr = np.mean([r["total_reward"] for r in runs])
-        ml = np.mean([r["steps"] for r in runs])
-        mc = np.mean([r["collisions"] for r in runs])
-        print(f"  {shape:<7}{n:>5}{sr:>9.1%}{mr:>+10.2f}{ml:>7.1f}{mc:>7.2f}")
+    print(f"  Shapes path             : {base.formation_path.label}")
+    print(f"  Overall success rate    : {successes / len(runs):.1%}")
+    print(f"  Mean stages completed   : {np.mean([r['stages_completed'] for r in runs]):.2f} / {runs[0]['num_stages']}")
+    print(f"  Overall mean reward     : {np.mean([r['total_reward'] for r in runs]):+.3f}")
+    print(f"  Overall mean ep length  : {np.mean([r['steps'] for r in runs]):.1f}")
+    print(f"  Overall mean collisions : {np.mean([r['collisions'] for r in runs]):.2f}")
 
-    # ---- Visualization (one episode) ----
     if args.render or args.save_gif:
-        # Optionally pin demo to a chosen shape
-        demo_shapes = [None]
-        if args.shape == "all":
-            demo_shapes = list(SHAPES)
-        elif args.shape is not None:
-            if args.shape not in SHAPES:
-                raise SystemExit(f"--shape must be one of {list(SHAPES)} or 'all'")
-            demo_shapes = [args.shape]
-
-        for s_idx, shape_val in enumerate(demo_shapes):
-            if shape_val is not None:
-                demo_env, demo_base = make_env(
-                    seed=args.seed + s_idx + 1,
-                    device=device,
-                    target_shapes=[shape_val],
-                    comm_fail_prob=args.comm_fail_prob,
+        demo_env, demo_base = make_env(
+            seed=args.seed + 1,
+            device=device,
+            shapes=shapes,
+            comm_fail_prob=args.comm_fail_prob,
+        )
+        demo = rollout(
+            demo_env, demo_base, actor, exploration,
+            max_steps=demo_base.max_steps, record=True,
+        )
+        print(
+            f"\n=== Demo episode: shapes='{demo['shapes']}', "
+            f"success={demo['success']}, stages={demo['stages_completed']}/{demo['num_stages']}, "
+            f"reward={demo['total_reward']:+.2f}, steps={demo['steps']} ==="
+        )
+        if args.render:
+            for step, frame in enumerate(demo["history"]):
+                print(
+                    f"\nstep {step}/{len(demo['history']) - 1} | "
+                    f"stage {frame['stage_idx'] + 1}/{frame['num_stages']} | "
+                    f"target='{frame['target_shape']}'"
                 )
-            else:
-                demo_env, demo_base = env, base
-            
-            demo = rollout(
-                demo_env, demo_base, actor, exploration,
-                max_steps=demo_base.max_steps, record=True,
-            )
-            print(
-                f"\n=== Demo episode: target='{demo['shape']}', "
-                f"success={demo['success']}, reward={demo['total_reward']:+.2f}, "
-                f"steps={demo['steps']} ==="
-            )
-            if args.render:
-                for step, positions in enumerate(demo["history"]):
-                    print(f"\nstep {step}/{len(demo['history']) - 1}  "
-                          f"target='{demo['shape']}'")
-                    print(render_ascii(demo_base, positions))
-                    time.sleep(args.render_delay)
-            if args.save_gif:
-                out_path = Path(args.save_gif)
-                if args.shape == "all":
-                    out = out_path.parent / f"{out_path.stem}_{demo['shape']}{out_path.suffix}"
-                else:
-                    out = out_path
-                if out.parent != Path(""):
-                    out.parent.mkdir(parents=True, exist_ok=True)
-                save_gif(demo_base, demo["history"], out)
-                print(f"\nSaved GIF -> {out}")
+                print(render_ascii(demo_base.grid_size, frame["target_cells"], frame["positions"]))
+                time.sleep(args.render_delay)
+        if args.save_gif:
+            gif_path = Path(args.save_gif)
+            if gif_path.parent != Path(""):
+                gif_path.parent.mkdir(parents=True, exist_ok=True)
+            save_gif(demo_base.grid_size, demo["history"], gif_path)
+            print(f"\nSaved GIF -> {gif_path}")
 
-    sys.stdout = _orig_stdout
-    _eval_log.close()
+    sys.stdout = orig_stdout
+    eval_log.close()
     print(f"Results saved to {out_path}")
 
 

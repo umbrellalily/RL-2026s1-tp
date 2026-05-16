@@ -1,12 +1,12 @@
 """MAPPO training for the comm-based (night-mode, multi-shape) environment.
 
 Identical to train.py except:
-  - imports ShapeFormationEnv from env_comm (24-d obs, multi-shape, broadcast)
+  - imports ShapeFormationEnv from comm_env (formation-path, broadcast)
   - default --save-dir = "checkpoints_comm"
   - default --tb-logdir = "runs_comm"
 
 Run:
-    python train_comm.py --total-frames 300000
+    python comm_train.py --shapes GROUND,X --total-frames 300000
 """
 from __future__ import annotations
 
@@ -41,12 +41,12 @@ def make_env(
     device: torch.device,
     comm_fail_prob: float,
     shaping_coef: float,
-    target_shapes: list[str] | None = None,
+    shapes: list[str] | None = None,
 ) -> TransformedEnv:
     base = ShapeFormationEnv(
         comm_fail_prob=comm_fail_prob,
         shaping_coef=shaping_coef,
-        target_shapes=target_shapes,
+        shapes=shapes,
     )
     env = PettingZooWrapper(
         env=base,
@@ -145,8 +145,12 @@ def main() -> None:
     parser.add_argument(
         "--shapes",
         type=str,
-        default="",
-        help="Comma-separated shape subset (e.g. 'I' or 'I,L,T'). Empty = all SHAPES.",
+        default="GROUND,X",
+        help=(
+            "Comma-separated formation path, e.g. 'GROUND,X' or "
+            "'GROUND,+,X,I,-'. If the first name is not GROUND, "
+            "GROUND is automatically prepended by the environment."
+        ),
     )
     parser.add_argument(
         "--load-ckpt",
@@ -165,24 +169,20 @@ def main() -> None:
     device = torch.device(args.device)
     torch.manual_seed(args.seed)
 
-    target_shapes = (
-        [s.strip() for s in args.shapes.split(",") if s.strip()]
-        if args.shapes
-        else None
-    )
+    shapes = [s.strip() for s in args.shapes.split(",") if s.strip()]
 
     env = make_env(
         seed=args.seed,
         device=device,
         comm_fail_prob=args.comm_fail_prob,
         shaping_coef=args.shaping_coef,
-        target_shapes=target_shapes,
+        shapes=shapes,
     )
 
     probe = ShapeFormationEnv(
         comm_fail_prob=args.comm_fail_prob,
         shaping_coef=args.shaping_coef,
-        target_shapes=target_shapes,
+        shapes=shapes,
     )
     obs_dim = probe.obs_dim
     n_actions = 5
