@@ -1,0 +1,14 @@
+=== Eval over 300 episodes (stochastic, comm_fail_prob=0.0) ===
+  Overall success rate     : 96.7%
+  Overall mean reward      : +9.921
+  Overall mean ep length   : 24.3
+  Overall mean collisions  : 13.05
+
+  Per-shape breakdown:
+  shape      N   success    reward    len   coll
+  +         51    98.0%    +10.21   21.0   6.94
+  -         45    95.6%     +9.74   27.3  18.58
+  I         43   100.0%    +10.63   19.8   2.28
+  L         53    94.3%     +9.32   27.9  22.75
+  T         46    91.3%     +8.89   34.3  29.83
+  X         62   100.0%    +10.60   17.3   0.77

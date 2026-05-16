@@ -1,0 +1,241 @@
+iter=   0  frames=    1024  mean_ep_reward= -2.810  success= 0.0%  loss= 0.0560
+iter=   1  frames=    2048  mean_ep_reward= -2.423  success= 0.0%  loss= 0.0628
+iter=   2  frames=    3072  mean_ep_reward= -2.156  success= 0.0%  loss= 0.0583
+iter=   3  frames=    4096  mean_ep_reward= -2.591  success= 0.0%  loss= 0.0469
+iter=   4  frames=    5120  mean_ep_reward= -1.471  success= 0.0%  loss= 0.0487
+iter=   5  frames=    6144  mean_ep_reward= -2.153  success= 0.0%  loss= 0.0490
+iter=   6  frames=    7168  mean_ep_reward= -1.374  success= 0.0%  loss= 0.0441
+iter=   7  frames=    8192  mean_ep_reward= -2.186  success= 0.0%  loss= 0.0613
+iter=   8  frames=    9216  mean_ep_reward= -2.311  success= 0.0%  loss= 0.0500
+iter=   9  frames=   10240  mean_ep_reward= -2.259  success= 0.0%  loss= 0.0516
+iter=  10  frames=   11264  mean_ep_reward= -1.897  success= 0.0%  loss= 0.0558
+iter=  11  frames=   12288  mean_ep_reward= -0.943  success= 0.0%  loss= 0.0418
+iter=  12  frames=   13312  mean_ep_reward= -0.960  success= 0.0%  loss= 0.0474
+iter=  13  frames=   14336  mean_ep_reward= -0.579  success= 0.0%  loss= 0.0409
+iter=  14  frames=   15360  mean_ep_reward= -0.353  success= 0.0%  loss= 0.0456
+iter=  15  frames=   16384  mean_ep_reward= -0.546  success= 0.0%  loss= 0.0460
+iter=  16  frames=   17408  mean_ep_reward= -0.299  success= 0.0%  loss= 0.0510
+iter=  17  frames=   18432  mean_ep_reward= -0.305  success= 0.0%  loss= 0.0472
+iter=  18  frames=   19456  mean_ep_reward= +0.101  success= 0.0%  loss= 0.0473
+iter=  19  frames=   20480  mean_ep_reward= +0.184  success= 0.0%  loss= 0.0419
+iter=  20  frames=   21504  mean_ep_reward= -0.116  success= 0.0%  loss= 0.0559
+iter=  21  frames=   22528  mean_ep_reward= +1.303  success= 0.0%  loss= 0.0409
+iter=  22  frames=   23552  mean_ep_reward= +1.167  success= 0.0%  loss= 0.0480
+iter=  23  frames=   24576  mean_ep_reward= +1.513  success= 0.0%  loss= 0.0455
+iter=  24  frames=   25600  mean_ep_reward= +1.834  success= 0.0%  loss= 0.0491
+iter=  25  frames=   26624  mean_ep_reward= +2.599  success= 0.0%  loss= 0.0449
+iter=  26  frames=   27648  mean_ep_reward= +2.037  success= 0.0%  loss= 0.0574
+iter=  27  frames=   28672  mean_ep_reward= +2.271  success= 0.0%  loss= 0.0553
+iter=  28  frames=   29696  mean_ep_reward= +2.527  success= 0.0%  loss= 0.0562
+iter=  29  frames=   30720  mean_ep_reward= +3.069  success= 0.0%  loss= 0.0600
+iter=  30  frames=   31744  mean_ep_reward= +2.927  success= 0.0%  loss= 0.0762
+iter=  31  frames=   32768  mean_ep_reward= +5.235  success=12.5%  loss= 0.1151
+iter=  32  frames=   33792  mean_ep_reward= +7.701  success=37.5%  loss= 0.2289
+iter=  33  frames=   34816  mean_ep_reward= +5.589  success=12.5%  loss= 0.1133
+iter=  34  frames=   35840  mean_ep_reward= +7.534  success=28.6%  loss= 0.1657
+iter=  35  frames=   36864  mean_ep_reward= +5.867  success=22.2%  loss= 0.1800
+iter=  36  frames=   37888  mean_ep_reward= +8.000  success=28.6%  loss= 0.1509
+iter=  37  frames=   38912  mean_ep_reward= +8.961  success=50.0%  loss= 0.2633
+iter=  38  frames=   39936  mean_ep_reward= +8.005  success=25.0%  loss= 0.1339
+iter=  39  frames=   40960  mean_ep_reward= +5.846  success= 0.0%  loss= 0.0663
+iter=  40  frames=   41984  mean_ep_reward=+12.575  success=83.3%  loss= 0.3963
+iter=  41  frames=   43008  mean_ep_reward=+12.746  success=84.6%  loss= 0.3605
+iter=  42  frames=   44032  mean_ep_reward=+13.835  success=100.0%  loss= 0.3819
+iter=  43  frames=   45056  mean_ep_reward=+11.697  success=63.6%  loss= 0.2138
+iter=  44  frames=   46080  mean_ep_reward=+13.620  success=92.3%  loss= 0.2679
+iter=  45  frames=   47104  mean_ep_reward=+13.340  success=94.1%  loss= 0.3192
+iter=  46  frames=   48128  mean_ep_reward= +9.908  success=75.0%  loss= 0.3429
+iter=  47  frames=   49152  mean_ep_reward=+12.384  success=87.5%  loss= 0.2594
+iter=  48  frames=   50176  mean_ep_reward=+12.690  success=95.7%  loss= 0.2512
+iter=  49  frames=   51200  mean_ep_reward=+12.226  success=95.7%  loss= 0.2233
+iter=  50  frames=   52224  mean_ep_reward=+12.320  success=89.5%  loss= 0.1754
+iter=  51  frames=   53248  mean_ep_reward=+12.760  success=95.0%  loss= 0.1679
+iter=  52  frames=   54272  mean_ep_reward=+12.755  success=94.1%  loss= 0.2084
+iter=  53  frames=   55296  mean_ep_reward=+10.307  success=75.0%  loss= 0.2853
+iter=  54  frames=   56320  mean_ep_reward=+12.762  success=94.4%  loss= 0.2239
+iter=  55  frames=   57344  mean_ep_reward=+12.706  success=95.0%  loss= 0.2002
+iter=  56  frames=   58368  mean_ep_reward=+12.928  success=94.4%  loss= 0.1894
+iter=  57  frames=   59392  mean_ep_reward=+13.111  success=92.9%  loss= 0.2342
+iter=  58  frames=   60416  mean_ep_reward=+12.047  success=90.0%  loss= 0.2190
+iter=  59  frames=   61440  mean_ep_reward=+11.043  success=85.0%  loss= 0.2475
+iter=  60  frames=   62464  mean_ep_reward=+12.094  success=91.7%  loss= 0.2379
+iter=  61  frames=   63488  mean_ep_reward=+11.708  success=89.5%  loss= 0.2365
+iter=  62  frames=   64512  mean_ep_reward=+11.906  success=87.5%  loss= 0.1936
+iter=  63  frames=   65536  mean_ep_reward=+11.898  success=86.7%  loss= 0.2625
+iter=  64  frames=   66560  mean_ep_reward=+11.329  success=89.7%  loss= 0.2463
+iter=  65  frames=   67584  mean_ep_reward=+11.488  success=85.0%  loss= 0.2342
+iter=  66  frames=   68608  mean_ep_reward=+12.680  success=95.2%  loss= 0.1688
+iter=  67  frames=   69632  mean_ep_reward=+12.049  success=87.5%  loss= 0.2698
+iter=  68  frames=   70656  mean_ep_reward=+11.365  success=84.2%  loss= 0.2629
+iter=  69  frames=   71680  mean_ep_reward=+11.494  success=85.0%  loss= 0.2490
+iter=  70  frames=   72704  mean_ep_reward=+13.688  success=100.0%  loss= 0.1310
+iter=  71  frames=   73728  mean_ep_reward=+12.497  success=95.0%  loss= 0.2364
+iter=  72  frames=   74752  mean_ep_reward=+12.582  success=95.5%  loss= 0.2102
+iter=  73  frames=   75776  mean_ep_reward=+10.958  success=71.4%  loss= 0.2261
+iter=  74  frames=   76800  mean_ep_reward=+13.219  success=80.0%  loss= 0.1667
+iter=  75  frames=   77824  mean_ep_reward=+12.221  success=80.0%  loss= 0.2567
+iter=  76  frames=   78848  mean_ep_reward=+10.202  success=63.6%  loss= 0.3354
+iter=  77  frames=   79872  mean_ep_reward=+14.572  success=91.7%  loss= 0.1650
+iter=  78  frames=   80896  mean_ep_reward=+14.139  success=92.9%  loss= 0.1563
+iter=  79  frames=   81920  mean_ep_reward=+14.102  success=80.0%  loss= 0.1850
+iter=  80  frames=   82944  mean_ep_reward=+12.679  success=88.9%  loss= 0.1920
+iter=  81  frames=   83968  mean_ep_reward=+12.541  success=85.7%  loss= 0.2173
+iter=  82  frames=   84992  mean_ep_reward=+12.234  success=87.0%  loss= 0.1810
+iter=  83  frames=   86016  mean_ep_reward=+12.110  success=82.4%  loss= 0.2062
+iter=  84  frames=   87040  mean_ep_reward=+10.489  success=66.7%  loss= 0.2896
+iter=  85  frames=   88064  mean_ep_reward=+12.182  success=90.5%  loss= 0.2455
+iter=  86  frames=   89088  mean_ep_reward=+11.779  success=85.7%  loss= 0.2166
+iter=  87  frames=   90112  mean_ep_reward=+11.955  success=76.9%  loss= 0.1969
+iter=  88  frames=   91136  mean_ep_reward=+10.893  success=82.4%  loss= 0.3298
+iter=  89  frames=   92160  mean_ep_reward=+11.795  success=88.2%  loss= 0.2866
+iter=  90  frames=   93184  mean_ep_reward=+10.515  success=66.7%  loss= 0.2336
+iter=  91  frames=   94208  mean_ep_reward=+11.929  success=88.2%  loss= 0.2702
+iter=  92  frames=   95232  mean_ep_reward=+14.168  success=93.3%  loss= 0.1265
+iter=  93  frames=   96256  mean_ep_reward=+12.749  success=88.2%  loss= 0.2023
+iter=  94  frames=   97280  mean_ep_reward=+12.409  success=89.5%  loss= 0.2072
+iter=  95  frames=   98304  mean_ep_reward=+11.384  success=81.2%  loss= 0.2594
+iter=  96  frames=   99328  mean_ep_reward=+12.128  success=76.9%  loss= 0.2117
+iter=  97  frames=  100352  mean_ep_reward=+12.401  success=90.0%  loss= 0.1944
+iter=  98  frames=  101376  mean_ep_reward=+12.692  success=88.2%  loss= 0.1667
+iter=  99  frames=  102400  mean_ep_reward=+13.596  success=81.8%  loss= 0.2194
+iter= 100  frames=  103424  mean_ep_reward=+12.423  success=71.4%  loss= 0.1497
+iter= 101  frames=  104448  mean_ep_reward=+13.316  success=85.7%  loss= 0.1475
+iter= 102  frames=  105472  mean_ep_reward=+12.003  success=82.4%  loss= 0.2177
+iter= 103  frames=  106496  mean_ep_reward=+12.334  success=84.6%  loss= 0.2495
+iter= 104  frames=  107520  mean_ep_reward=+12.051  success=81.2%  loss= 0.2184
+iter= 105  frames=  108544  mean_ep_reward=+12.905  success=76.9%  loss= 0.1430
+iter= 106  frames=  109568  mean_ep_reward=+12.395  success=63.6%  loss= 0.1797
+iter= 107  frames=  110592  mean_ep_reward=+13.095  success=94.4%  loss= 0.2066
+iter= 108  frames=  111616  mean_ep_reward=+13.503  success=93.8%  loss= 0.1849
+iter= 109  frames=  112640  mean_ep_reward=+12.576  success=92.0%  loss= 0.1593
+iter= 110  frames=  113664  mean_ep_reward=+11.635  success=85.0%  loss= 0.2271
+iter= 111  frames=  114688  mean_ep_reward=+12.409  success=95.5%  loss= 0.2124
+iter= 112  frames=  115712  mean_ep_reward=+12.279  success=92.6%  loss= 0.1913
+iter= 113  frames=  116736  mean_ep_reward=+13.084  success=95.5%  loss= 0.1549
+iter= 114  frames=  117760  mean_ep_reward=+10.351  success=75.0%  loss= 0.2857
+iter= 115  frames=  118784  mean_ep_reward=+13.358  success=93.8%  loss= 0.2018
+iter= 116  frames=  119808  mean_ep_reward=+12.658  success=89.5%  loss= 0.1846
+iter= 117  frames=  120832  mean_ep_reward=+12.965  success=75.0%  loss= 0.1820
+iter= 118  frames=  121856  mean_ep_reward=+11.784  success=88.2%  loss= 0.2749
+iter= 119  frames=  122880  mean_ep_reward=+12.295  success=89.5%  loss= 0.2429
+iter= 120  frames=  123904  mean_ep_reward=+12.718  success=86.7%  loss= 0.2224
+iter= 121  frames=  124928  mean_ep_reward=+11.528  success=81.2%  loss= 0.2707
+iter= 122  frames=  125952  mean_ep_reward=+10.957  success=83.3%  loss= 0.3422
+iter= 123  frames=  126976  mean_ep_reward=+10.643  success=73.3%  loss= 0.3082
+iter= 124  frames=  128000  mean_ep_reward=+13.094  success=95.5%  loss= 0.1660
+iter= 125  frames=  129024  mean_ep_reward= +9.994  success=64.3%  loss= 0.3155
+iter= 126  frames=  130048  mean_ep_reward=+12.902  success=95.0%  loss= 0.1743
+iter= 127  frames=  131072  mean_ep_reward= +9.817  success=58.3%  loss= 0.2868
+iter= 128  frames=  132096  mean_ep_reward=+13.358  success=94.7%  loss= 0.1416
+iter= 129  frames=  133120  mean_ep_reward=+12.504  success=81.2%  loss= 0.1662
+iter= 130  frames=  134144  mean_ep_reward=+12.099  success=84.2%  loss= 0.2008
+iter= 131  frames=  135168  mean_ep_reward=+11.656  success=78.6%  loss= 0.2579
+iter= 132  frames=  136192  mean_ep_reward=+11.794  success=82.4%  loss= 0.2144
+iter= 133  frames=  137216  mean_ep_reward=+11.938  success=78.6%  loss= 0.2147
+iter= 134  frames=  138240  mean_ep_reward=+13.129  success=85.7%  loss= 0.2119
+iter= 135  frames=  139264  mean_ep_reward=+13.214  success=85.7%  loss= 0.1803
+iter= 136  frames=  140288  mean_ep_reward=+10.320  success=44.4%  loss= 0.1739
+iter= 137  frames=  141312  mean_ep_reward=+11.892  success=50.0%  loss= 0.1252
+iter= 138  frames=  142336  mean_ep_reward=+12.279  success=80.0%  loss= 0.2388
+iter= 139  frames=  143360  mean_ep_reward=+12.609  success=78.6%  loss= 0.2129
+iter= 140  frames=  144384  mean_ep_reward=+11.938  success=84.6%  loss= 0.3227
+iter= 141  frames=  145408  mean_ep_reward=+14.194  success=80.0%  loss= 0.1545
+iter= 142  frames=  146432  mean_ep_reward=+12.262  success=90.0%  loss= 0.2494
+iter= 143  frames=  147456  mean_ep_reward=+11.656  success=83.3%  loss= 0.2285
+iter= 144  frames=  148480  mean_ep_reward=+10.462  success=76.5%  loss= 0.3252
+iter= 145  frames=  149504  mean_ep_reward=+11.163  success=76.5%  loss= 0.2533
+iter= 146  frames=  150528  mean_ep_reward=+12.057  success=91.3%  loss= 0.2104
+iter= 147  frames=  151552  mean_ep_reward= +9.633  success=58.3%  loss= 0.3497
+iter= 148  frames=  152576  mean_ep_reward=+13.332  success=94.7%  loss= 0.1847
+iter= 149  frames=  153600  mean_ep_reward=+12.950  success=100.0%  loss= 0.1683
+iter= 150  frames=  154624  mean_ep_reward=+11.430  success=87.0%  loss= 0.2613
+iter= 151  frames=  155648  mean_ep_reward=+12.058  success=88.9%  loss= 0.2525
+iter= 152  frames=  156672  mean_ep_reward=+12.084  success=81.2%  loss= 0.2215
+iter= 153  frames=  157696  mean_ep_reward=+11.042  success=84.2%  loss= 0.3193
+iter= 154  frames=  158720  mean_ep_reward=+10.739  success=73.3%  loss= 0.2902
+iter= 155  frames=  159744  mean_ep_reward=+12.323  success=90.5%  loss= 0.1851
+iter= 156  frames=  160768  mean_ep_reward=+11.740  success=90.5%  loss= 0.2677
+iter= 157  frames=  161792  mean_ep_reward=+11.587  success=80.0%  loss= 0.2815
+iter= 158  frames=  162816  mean_ep_reward=+12.906  success=85.7%  loss= 0.1786
+iter= 159  frames=  163840  mean_ep_reward=+10.776  success=77.8%  loss= 0.3090
+iter= 160  frames=  164864  mean_ep_reward= +8.879  success=33.3%  loss= 0.1801
+iter= 161  frames=  165888  mean_ep_reward=+11.871  success=76.9%  loss= 0.2725
+iter= 162  frames=  166912  mean_ep_reward=+12.959  success=86.7%  loss= 0.2036
+iter= 163  frames=  167936  mean_ep_reward=+11.431  success=82.4%  loss= 0.2600
+iter= 164  frames=  168960  mean_ep_reward= +9.165  success=53.8%  loss= 0.3230
+iter= 165  frames=  169984  mean_ep_reward=+11.698  success=76.9%  loss= 0.2172
+iter= 166  frames=  171008  mean_ep_reward=+12.896  success=85.7%  loss= 0.2145
+iter= 167  frames=  172032  mean_ep_reward=+12.337  success=82.4%  loss= 0.1930
+iter= 168  frames=  173056  mean_ep_reward=+13.188  success=94.7%  loss= 0.1939
+iter= 169  frames=  174080  mean_ep_reward=+12.524  success=88.9%  loss= 0.2122
+iter= 170  frames=  175104  mean_ep_reward=+12.350  success=90.9%  loss= 0.2268
+iter= 171  frames=  176128  mean_ep_reward=+10.776  success=75.0%  loss= 0.3103
+iter= 172  frames=  177152  mean_ep_reward=+11.761  success=78.6%  loss= 0.2133
+iter= 173  frames=  178176  mean_ep_reward=+12.710  success=85.7%  loss= 0.1353
+iter= 174  frames=  179200  mean_ep_reward=+11.683  success=89.5%  loss= 0.2847
+iter= 175  frames=  180224  mean_ep_reward=+11.492  success=80.0%  loss= 0.2676
+iter= 176  frames=  181248  mean_ep_reward=+11.606  success=85.7%  loss= 0.2273
+iter= 177  frames=  182272  mean_ep_reward=+11.566  success=86.4%  loss= 0.2690
+iter= 178  frames=  183296  mean_ep_reward=+12.332  success=91.3%  loss= 0.1962
+iter= 179  frames=  184320  mean_ep_reward= +9.620  success=68.8%  loss= 0.3287
+iter= 180  frames=  185344  mean_ep_reward=+12.214  success=90.0%  loss= 0.2327
+iter= 181  frames=  186368  mean_ep_reward= +7.638  success=33.3%  loss= 0.2788
+iter= 182  frames=  187392  mean_ep_reward= +4.177  success= 0.0%  loss= 0.1611
+iter= 183  frames=  188416  mean_ep_reward= +5.234  success= 0.0%  loss= 0.1617
+iter= 184  frames=  189440  mean_ep_reward= +5.082  success= 0.0%  loss= 0.2111
+iter= 185  frames=  190464  mean_ep_reward= +4.824  success= 0.0%  loss= 0.2037
+iter= 186  frames=  191488  mean_ep_reward= +6.159  success= 0.0%  loss= 0.1862
+iter= 187  frames=  192512  mean_ep_reward= +6.291  success= 0.0%  loss= 0.1965
+iter= 188  frames=  193536  mean_ep_reward= +9.204  success=12.5%  loss= 0.1381
+iter= 189  frames=  194560  mean_ep_reward= +5.865  success= 0.0%  loss= 0.2446
+iter= 190  frames=  195584  mean_ep_reward=+12.611  success=37.5%  loss= 0.1617
+iter= 191  frames=  196608  mean_ep_reward=+13.344  success=75.0%  loss= 0.2234
+iter= 192  frames=  197632  mean_ep_reward=+11.825  success=66.7%  loss= 0.2662
+iter= 193  frames=  198656  mean_ep_reward= +9.911  success=64.3%  loss= 0.3461
+iter= 194  frames=  199680  mean_ep_reward=+11.385  success=72.7%  loss= 0.2851
+iter= 195  frames=  200704  mean_ep_reward=+12.253  success=63.6%  loss= 0.1870
+iter= 196  frames=  201728  mean_ep_reward=+12.114  success=78.6%  loss= 0.2460
+iter= 197  frames=  202752  mean_ep_reward=+13.696  success=93.8%  loss= 0.1906
+iter= 198  frames=  203776  mean_ep_reward=+12.180  success=80.0%  loss= 0.2276
+iter= 199  frames=  204800  mean_ep_reward=+12.802  success=88.9%  loss= 0.2133
+iter= 200  frames=  205824  mean_ep_reward=+12.130  success=84.2%  loss= 0.1690
+iter= 201  frames=  206848  mean_ep_reward=+13.623  success=100.0%  loss= 0.1976
+iter= 202  frames=  207872  mean_ep_reward=+11.777  success=78.6%  loss= 0.2670
+iter= 203  frames=  208896  mean_ep_reward=+11.608  success=75.0%  loss= 0.2544
+iter= 204  frames=  209920  mean_ep_reward=+11.652  success=78.6%  loss= 0.2629
+iter= 205  frames=  210944  mean_ep_reward=+12.705  success=75.0%  loss= 0.2042
+iter= 206  frames=  211968  mean_ep_reward=+12.076  success=76.9%  loss= 0.2141
+iter= 207  frames=  212992  mean_ep_reward=+12.276  success=87.5%  loss= 0.2521
+iter= 208  frames=  214016  mean_ep_reward=+12.205  success=85.0%  loss= 0.1796
+iter= 209  frames=  215040  mean_ep_reward=+11.576  success=80.0%  loss= 0.1846
+iter= 210  frames=  216064  mean_ep_reward=+11.522  success=75.0%  loss= 0.2621
+iter= 211  frames=  217088  mean_ep_reward=+11.941  success=83.3%  loss= 0.2332
+iter= 212  frames=  218112  mean_ep_reward=+13.668  success=100.0%  loss= 0.1742
+iter= 213  frames=  219136  mean_ep_reward=+11.128  success=82.6%  loss= 0.2483
+iter= 214  frames=  220160  mean_ep_reward=+11.116  success=82.4%  loss= 0.3021
+iter= 215  frames=  221184  mean_ep_reward=+13.118  success=95.0%  loss= 0.1852
+iter= 216  frames=  222208  mean_ep_reward=+10.773  success=80.0%  loss= 0.2884
+iter= 217  frames=  223232  mean_ep_reward=+12.048  success=78.6%  loss= 0.2465
+iter= 218  frames=  224256  mean_ep_reward=+11.438  success=83.3%  loss= 0.2435
+iter= 219  frames=  225280  mean_ep_reward=+12.083  success=89.5%  loss= 0.2493
+iter= 220  frames=  226304  mean_ep_reward=+11.909  success=73.3%  loss= 0.1808
+iter= 221  frames=  227328  mean_ep_reward=+10.799  success=69.2%  loss= 0.2664
+iter= 222  frames=  228352  mean_ep_reward=+10.644  success=71.4%  loss= 0.3098
+iter= 223  frames=  229376  mean_ep_reward=+10.177  success=58.3%  loss= 0.2422
+iter= 224  frames=  230400  mean_ep_reward=+11.992  success=88.9%  loss= 0.2643
+iter= 225  frames=  231424  mean_ep_reward=+12.052  success=83.3%  loss= 0.2162
+iter= 226  frames=  232448  mean_ep_reward=+12.088  success=82.4%  loss= 0.2274
+iter= 227  frames=  233472  mean_ep_reward=+11.442  success=81.2%  loss= 0.2514
+iter= 228  frames=  234496  mean_ep_reward=+13.280  success=100.0%  loss= 0.1454
+iter= 229  frames=  235520  mean_ep_reward=+10.930  success=78.9%  loss= 0.2762
+iter= 230  frames=  236544  mean_ep_reward=+11.872  success=83.3%  loss= 0.2373
+iter= 231  frames=  237568  mean_ep_reward=+12.534  success=90.5%  loss= 0.1929
+iter= 232  frames=  238592  mean_ep_reward=+13.053  success=88.9%  loss= 0.1254
+iter= 233  frames=  239616  mean_ep_reward=+10.492  success=73.3%  loss= 0.3009
+iter= 234  frames=  240640  mean_ep_reward=+12.484  success=92.0%  loss= 0.1891
+iter= 235  frames=  241664  mean_ep_reward=+12.805  success=90.5%  loss= 0.1301
+iter= 236  frames=  242688  mean_ep_reward=+12.955  success=86.7%  loss= 0.1661
+iter= 237  frames=  243712  mean_ep_reward=+12.160  success=87.5%  loss= 0.1818
+iter= 238  frames=  244736  mean_ep_reward=+12.667  success=95.0%  loss= 0.2167
+iter= 239  frames=  245760  mean_ep_reward=+11.598  success=88.9%  loss= 0.3289
+iter= 240  frames=  246784  mean_ep_reward=+12.786  success=96.0%  loss= 0.1602

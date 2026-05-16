@@ -1,0 +1,38 @@
+=== Eval over 200 episodes (stochastic, comm_fail_prob=0.0) ===
+  Overall success rate     : 83.0%
+  Overall mean reward      : +9.996
+  Overall mean ep length   : 57.2
+  Overall mean collisions  : 93.36
+
+  Per-shape breakdown:
+  shape      N   success    reward    len   coll
+  +         24    75.0%    +10.06   76.2 117.25
+  -         40    82.5%     +9.86   57.1  97.78
+  I         33    84.8%    +10.11   48.4  73.27
+  L         34    85.3%    +10.23   58.1 100.32
+  T         33    84.8%     +9.90   47.5  71.09
+  X         36    83.3%     +9.87   60.7 104.75
+
+=== Demo episode: target='I', success=True, reward=+12.45, steps=57 ===
+
+Saved GIF -> demo_10drones_I.gif
+
+=== Demo episode: target='-', success=True, reward=+13.19, steps=74 ===
+
+Saved GIF -> demo_10drones_-.gif
+
+=== Demo episode: target='L', success=True, reward=+10.61, steps=18 ===
+
+Saved GIF -> demo_10drones_L.gif
+
+=== Demo episode: target='T', success=True, reward=+10.36, steps=16 ===
+
+Saved GIF -> demo_10drones_T.gif
+
+=== Demo episode: target='+', success=True, reward=+10.53, steps=17 ===
+
+Saved GIF -> demo_10drones_+.gif
+
+=== Demo episode: target='X', success=True, reward=+12.29, steps=89 ===
+
+Saved GIF -> demo_10drones_X.gif
