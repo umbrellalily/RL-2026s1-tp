@@ -1,13 +1,13 @@
 """Dec-POMDP shape-transition grid world with inter-agent position broadcast.
 
-Setup
------
-- 15x15 grid, 10 drones, actions = {stay, up, down, left, right}.
+Default setup
+-------------
+- 25x25 grid, 20 drones, actions = {stay, up, down, left, right}.
 - Formation coordinates are defined outside the environment in formation_seq.py.
 - A comma-separated ``shapes`` path such as ``GROUND,X,I,-`` means:
       start at GROUND -> move to X -> move to I -> move to -
-- GROUND is a bottom-row line, so with grid_size=15 and n_agents=10 the
-  default start cells are (14, 2), ..., (14, 11).
+- GROUND is a bottom-row line. With grid_size=25 and n_agents=20, the
+  default start cells are (24, 2), ..., (24, 21).
 - Observation:
     [ own (row, col) / grid_size                         ]  2
     [ current target cells (row, col) / grid_size         ]  2*n_agents
@@ -15,19 +15,21 @@ Setup
     [ my assigned target cell (row, col) / grid_size      ]  2
 - Drone<->target assignment is computed at the start of each stage by
   Hungarian algorithm using the current drone positions and current target.
-- Reward: step penalty, on-target reward, stage completion reward, collision
-  penalty, and per-drone shaping toward the assigned target.
+- Reward includes:
+    step penalty, collision penalty, on-target reward, exact assigned-target
+    reward, coverage-delta team reward, stage completion reward, and shaping
+    toward the assigned target.
 """
 from __future__ import annotations
 
 from collections import Counter
 
 import numpy as np
-from scipy.optimize import linear_sum_assignment
 from gymnasium import spaces
 from pettingzoo import ParallelEnv
+from scipy.optimize import linear_sum_assignment
 
-from formation_seq import Formation, FormationPath, SHAPES, build_shapes
+from formation_seq import Formation, FormationPath, build_shapes
 
 # 0:stay, 1:up, 2:down, 3:left, 4:right
 MOVES: dict[int, tuple[int, int]] = {
@@ -44,9 +46,9 @@ class ShapeFormationEnv(ParallelEnv):
 
     def __init__(
         self,
-        grid_size: int = 15,
-        n_agents: int = 10,
-        max_steps: int = 150,
+        grid_size: int = 25,
+        n_agents: int = 20,
+        max_steps: int = 250,
         shapes: list[str] | None = None,
         target_shapes: list[str] | None = None,
         formation_path: FormationPath | None = None,
@@ -56,6 +58,9 @@ class ShapeFormationEnv(ParallelEnv):
         collision_penalty: float = 0.2,
         step_penalty: float = 0.01,
         shaping_coef: float = 0.3,
+        assigned_target_reward: float = 0.3,
+        coverage_delta_reward: float = 0.2,
+        hover_penalty: float = 0.02,
         ground_row: int | None = None,
         ground_start_col: int | None = None,
     ):
@@ -68,6 +73,9 @@ class ShapeFormationEnv(ParallelEnv):
         self.collision_penalty = collision_penalty
         self.step_penalty = step_penalty
         self.shaping_coef = shaping_coef
+        self.assigned_target_reward = assigned_target_reward
+        self.coverage_delta_reward = coverage_delta_reward
+        self.hover_penalty = hover_penalty
         self.ground_row = ground_row
         self.ground_start_col = ground_start_col
 
@@ -85,8 +93,7 @@ class ShapeFormationEnv(ParallelEnv):
             ground_start_col=ground_start_col,
         )
         self.shapes: list[str] = self.formation_path.names
-        # Compatibility with older train/eval code that read target_shapes.
-        self.target_shapes: list[str] = self.shapes
+        self.target_shapes: list[str] = self.shapes  # compatibility
 
         self.possible_agents: list[str] = [f"drone_{i}" for i in range(n_agents)]
         self.agents: list[str] = list(self.possible_agents)
@@ -108,6 +115,8 @@ class ShapeFormationEnv(ParallelEnv):
         self.step_count: int = 0
         self.assigned_target_cell: dict[str, tuple[int, int]] = {}
         self.prev_per_drone_dists: dict[str, float] = {}
+        self.best_occupied_count: int = 0
+        self.last_occupied_count: int = 0
         self.np_random: np.random.Generator = np.random.default_rng()
 
     # PettingZoo API ---------------------------------------------------------
@@ -127,6 +136,8 @@ class ShapeFormationEnv(ParallelEnv):
         self.stage_done_count = 0
 
         # Start from the first formation, normally GROUND.
+        if len(self.formation_path.start.cells) != self.n_agents:
+            raise ValueError("start formation size must equal n_agents")
         self.agent_pos = {
             agent: cell
             for agent, cell in zip(self.possible_agents, self.formation_path.start.cells)
@@ -136,87 +147,102 @@ class ShapeFormationEnv(ParallelEnv):
         self._set_target_formation(self.formation_path.targets[self.stage_idx])
         self._reset_assignment()
 
-        return self._all_obs(), {a: {} for a in self.agents}
+        return self._all_obs(), {agent: {} for agent in self.agents}
 
     def step(self, actions: dict[str, int]):
         self.step_count += 1
 
-        # 1) Propose next positions (walls clip the move)
+        # 1) Propose next positions (walls clip the move).
         proposed: dict[str, tuple[int, int]] = {}
-        for a in self.possible_agents:
-            r, c = self.agent_pos[a]
-            dr, dc = MOVES[int(actions[a])]
+        for agent in self.possible_agents:
+            r, c = self.agent_pos[agent]
+            dr, dc = MOVES[int(actions[agent])]
             nr, nc = r + dr, c + dc
-            if 0 <= nr < self.grid_size and 0 <= nc < self.grid_size:
-                proposed[a] = (nr, nc)
-            else:
-                proposed[a] = (r, c)
+            proposed[agent] = (
+                (nr, nc) if 0 <= nr < self.grid_size and 0 <= nc < self.grid_size else (r, c)
+            )
 
-        # 2) Resolve collisions (same-cell + swap conflicts -> both stay)
+        # 2) Resolve collisions (same-cell + swap conflicts -> both stay).
         counts = Counter(proposed.values())
         collisions: set[str] = set()
         new_pos: dict[str, tuple[int, int]] = {}
-        for a, p in proposed.items():
-            if counts[p] > 1:
-                new_pos[a] = self.agent_pos[a]
-                collisions.add(a)
+        for agent, pos in proposed.items():
+            if counts[pos] > 1:
+                new_pos[agent] = self.agent_pos[agent]
+                collisions.add(agent)
                 continue
             swap = False
-            for b, pb in proposed.items():
-                if b == a:
+            for other, other_pos in proposed.items():
+                if other == agent:
                     continue
-                if p == self.agent_pos[b] and pb == self.agent_pos[a]:
+                if pos == self.agent_pos[other] and other_pos == self.agent_pos[agent]:
                     swap = True
-                    collisions.add(a)
-                    collisions.add(b)
+                    collisions.add(agent)
+                    collisions.add(other)
                     break
-            new_pos[a] = self.agent_pos[a] if swap else p
+            new_pos[agent] = self.agent_pos[agent] if swap else pos
         self.agent_pos = new_pos
         self.last_collision_count = len(collisions)
 
-        # 3) Base rewards
-        rewards = {a: -self.step_penalty for a in self.possible_agents}
-        for a in collisions:
-            rewards[a] -= self.collision_penalty
+        # 3) Base rewards.
+        rewards = {agent: -self.step_penalty for agent in self.possible_agents}
+        for agent in collisions:
+            rewards[agent] -= self.collision_penalty
 
         occupied: set[tuple[int, int]] = set()
-        for a, p in self.agent_pos.items():
-            if p in self._target_set:
-                rewards[a] += self.on_target_reward
-                occupied.add(p)
-        shape_done = len(occupied) == len(self.target_cells)
+        for agent, pos in self.agent_pos.items():
+            if pos in self._target_set:
+                rewards[agent] += self.on_target_reward
+                occupied.add(pos)
+            if pos == self.assigned_target_cell[agent]:
+                rewards[agent] += self.assigned_target_reward
 
-        # 4) Per-drone potential-based shaping toward the current assigned target.
-        # This is computed before a possible stage transition, so the reward term
-        # belongs to the stage that was active during this step.
-        for a in self.possible_agents:
-            tr, tc = self.assigned_target_cell[a]
-            r, c = self.agent_pos[a]
-            new_dist = float(abs(r - tr) + abs(c - tc))
+        covered_count = len(occupied)
+        self.last_occupied_count = covered_count
+        coverage_delta = max(0, covered_count - self.best_occupied_count)
+        if coverage_delta > 0:
+            for agent in self.possible_agents:
+                rewards[agent] += self.coverage_delta_reward * coverage_delta
+            self.best_occupied_count = covered_count
+
+        # Penalize hovering outside the target set to avoid a safe-but-stuck policy.
+        for agent in self.possible_agents:
+            if int(actions[agent]) == 0 and self.agent_pos[agent] not in self._target_set:
+                rewards[agent] -= self.hover_penalty
+
+        shape_done = covered_count == len(self.target_cells)
+
+        # 4) Per-drone shaping toward current assigned target.
+        for agent in self.possible_agents:
+            target_r, target_c = self.assigned_target_cell[agent]
+            r, c = self.agent_pos[agent]
+            new_dist = float(abs(r - target_r) + abs(c - target_c))
             if self.shaping_coef != 0.0:
-                rewards[a] += self.shaping_coef * (self.prev_per_drone_dists[a] - new_dist)
-            self.prev_per_drone_dists[a] = new_dist
+                rewards[agent] += self.shaping_coef * (self.prev_per_drone_dists[agent] - new_dist)
+            self.prev_per_drone_dists[agent] = new_dist
 
-        # 5) Stage transition. Completing an intermediate shape advances the
-        # target instead of ending the episode. Only the final target terminates.
+        # 5) Stage transition. Only final target terminates the episode.
         final_done = self._advance_stage_if_needed(shape_done, rewards)
 
         truncated = self.step_count >= self.max_steps
-        terminations = {a: final_done for a in self.possible_agents}
-        truncations = {a: (truncated and not final_done) for a in self.possible_agents}
+        terminations = {agent: final_done for agent in self.possible_agents}
+        truncations = {agent: (truncated and not final_done) for agent in self.possible_agents}
 
         obs = self._all_obs()
         infos = {
-            a: {
-                "collision": (a in collisions),
+            agent: {
+                "collision": (agent in collisions),
                 "shape_done": shape_done,
                 "final_done": final_done,
                 "stage_idx": self.stage_idx,
                 "stages_completed": self.stage_done_count,
                 "target_shape": self.target_shape_name,
                 "shapes_path": self.formation_path.label,
+                "occupied_count": self.last_occupied_count,
+                "best_occupied_count": self.best_occupied_count,
+                "coverage": self.last_occupied_count / max(1, len(self.target_cells)),
             }
-            for a in self.possible_agents
+            for agent in self.possible_agents
         }
 
         if final_done or truncated:
@@ -226,19 +252,27 @@ class ShapeFormationEnv(ParallelEnv):
 
     # Helpers ----------------------------------------------------------------
     def _set_target_formation(self, formation: Formation) -> None:
+        if len(formation.cells) != self.n_agents:
+            raise ValueError(f"target formation {formation.name!r} size must equal n_agents")
         self.target_shape_name = formation.name
         self.target_cells = list(formation.cells)
         self._target_set = set(self.target_cells)
 
+    def _count_occupied_targets(self) -> int:
+        return len({pos for pos in self.agent_pos.values() if pos in self._target_set})
+
     def _reset_assignment(self) -> None:
         self.assigned_target_cell = self._compute_assignment()
         self.prev_per_drone_dists = {
-            a: float(
-                abs(self.agent_pos[a][0] - self.assigned_target_cell[a][0])
-                + abs(self.agent_pos[a][1] - self.assigned_target_cell[a][1])
+            agent: float(
+                abs(self.agent_pos[agent][0] - self.assigned_target_cell[agent][0])
+                + abs(self.agent_pos[agent][1] - self.assigned_target_cell[agent][1])
             )
-            for a in self.possible_agents
+            for agent in self.possible_agents
         }
+        # Start coverage accounting from the current overlap with the new target.
+        self.last_occupied_count = self._count_occupied_targets()
+        self.best_occupied_count = self.last_occupied_count
 
     def _advance_stage_if_needed(
         self,
@@ -253,8 +287,8 @@ class ShapeFormationEnv(ParallelEnv):
             return False
 
         self.stage_done_count += 1
-        for a in self.possible_agents:
-            rewards[a] += self.completion_reward
+        for agent in self.possible_agents:
+            rewards[agent] += self.completion_reward
 
         is_final_stage = self.stage_idx >= len(self.formation_path.targets) - 1
         if is_final_stage:
@@ -267,7 +301,7 @@ class ShapeFormationEnv(ParallelEnv):
 
     def _compute_assignment(self) -> dict[str, tuple[int, int]]:
         """Optimal 1:1 drone<->target assignment via Hungarian algorithm."""
-        drones = [self.agent_pos[a] for a in self.possible_agents]
+        drones = [self.agent_pos[agent] for agent in self.possible_agents]
         targets = self.target_cells
         n = len(drones)
 
@@ -283,22 +317,19 @@ class ShapeFormationEnv(ParallelEnv):
         }
 
     def _all_obs(self) -> dict[str, np.ndarray]:
-        return {a: self._get_obs(a) for a in self.possible_agents}
+        return {agent: self._get_obs(agent) for agent in self.possible_agents}
 
     def _get_obs(self, agent: str) -> np.ndarray:
         gs = float(self.grid_size)
         r, c = self.agent_pos[agent]
 
-        # (a) Own GPS position
         own = np.array([r / gs, c / gs], dtype=np.float32)
 
-        # (b) Current target cells, canonical order, length = 2 * n_agents
         target_vec = np.empty(2 * self.n_agents, dtype=np.float32)
         for i, (tr, tc) in enumerate(self.target_cells):
             target_vec[2 * i] = tr / gs
             target_vec[2 * i + 1] = tc / gs
 
-        # (c) Comm: receive other drones' positions w/ per-link Bernoulli loss
         comm = np.zeros(3 * (self.n_agents - 1), dtype=np.float32)
         i = 0
         for other in self.possible_agents:
@@ -311,22 +342,22 @@ class ShapeFormationEnv(ParallelEnv):
                 comm[3 * i + 2] = 1.0
             i += 1
 
-        # (d) My assigned target cell for the current stage
-        atr, atc = self.assigned_target_cell[agent]
-        assigned = np.array([atr / gs, atc / gs], dtype=np.float32)
+        assigned_r, assigned_c = self.assigned_target_cell[agent]
+        assigned = np.array([assigned_r / gs, assigned_c / gs], dtype=np.float32)
 
         return np.concatenate([own, target_vec, comm, assigned])
 
     def render(self) -> None:
         grid = [["."] * self.grid_size for _ in range(self.grid_size)]
-        for (r, c) in self.target_cells:
+        for r, c in self.target_cells:
             grid[r][c] = "x"
-        for a, (r, c) in self.agent_pos.items():
-            grid[r][c] = a[-1]
+        for agent, (r, c) in self.agent_pos.items():
+            grid[r][c] = agent.split("_")[-1][-1]
         print(
             f"shapes='{self.formation_path.label}'  "
             f"stage={self.stage_idx + 1}/{len(self.formation_path.targets)}  "
-            f"target='{self.target_shape_name}'"
+            f"target='{self.target_shape_name}'  "
+            f"coverage={self.last_occupied_count}/{len(self.target_cells)}"
         )
         print("\n".join("".join(row) for row in grid))
         print()

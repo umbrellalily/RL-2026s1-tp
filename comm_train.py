@@ -1,12 +1,10 @@
-"""MAPPO training for the comm-based (night-mode, multi-shape) environment.
+"""MAPPO training for the formation-path communication environment.
 
-Identical to train.py except:
-  - imports ShapeFormationEnv from comm_env (formation-path, broadcast)
-  - default --save-dir = "checkpoints_comm"
-  - default --tb-logdir = "runs_comm"
+Default setup is 20 drones on a 25x25 grid.
 
-Run:
+Examples:
     python comm_train.py --shapes GROUND,X --total-frames 300000
+    python comm_train.py --shapes GROUND,+,X,I --total-frames 1048576
 """
 from __future__ import annotations
 
@@ -20,6 +18,7 @@ try:
     from torch.utils.tensorboard import SummaryWriter
 except ImportError:
     SummaryWriter = None  # type: ignore
+
 from tensordict.nn import TensorDictModule
 from torch.distributions import Categorical
 from torchrl.collectors import SyncDataCollector
@@ -39,13 +38,25 @@ GROUP = "drone"
 def make_env(
     seed: int,
     device: torch.device,
+    grid_size: int,
+    n_agents: int,
+    max_steps: int,
     comm_fail_prob: float,
     shaping_coef: float,
+    assigned_target_reward: float,
+    coverage_delta_reward: float,
+    hover_penalty: float,
     shapes: list[str] | None = None,
 ) -> TransformedEnv:
     base = ShapeFormationEnv(
+        grid_size=grid_size,
+        n_agents=n_agents,
+        max_steps=max_steps,
         comm_fail_prob=comm_fail_prob,
         shaping_coef=shaping_coef,
+        assigned_target_reward=assigned_target_reward,
+        coverage_delta_reward=coverage_delta_reward,
+        hover_penalty=hover_penalty,
         shapes=shapes,
     )
     env = PettingZooWrapper(
@@ -114,6 +125,9 @@ def build_models(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--grid-size", type=int, default=25)
+    parser.add_argument("--n-agents", type=int, default=20)
+    parser.add_argument("--max-steps", type=int, default=250)
     parser.add_argument("--total-frames", type=int, default=300_000)
     parser.add_argument("--frames-per-batch", type=int, default=4096)
     parser.add_argument("--minibatch-size", type=int, default=512)
@@ -128,7 +142,7 @@ def main() -> None:
     parser.add_argument("--hidden", type=int, default=128)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--save-dir", type=str, default="checkpoints_comm")
+    parser.add_argument("--save-dir", type=str, default="checkpoints_comm20")
     parser.add_argument("--ckpt-every", type=int, default=10)
     parser.add_argument(
         "--comm-fail-prob",
@@ -140,7 +154,25 @@ def main() -> None:
         "--shaping-coef",
         type=float,
         default=0.3,
-        help="Potential-based shaping coefficient on Hungarian assignment distance. 0 disables.",
+        help="Potential-based shaping coefficient toward assigned target. 0 disables.",
+    )
+    parser.add_argument(
+        "--assigned-target-reward",
+        type=float,
+        default=0.3,
+        help="Extra per-step reward when a drone is exactly on its assigned target cell.",
+    )
+    parser.add_argument(
+        "--coverage-delta-reward",
+        type=float,
+        default=0.2,
+        help="Team reward multiplier when the stage reaches a new best target coverage count.",
+    )
+    parser.add_argument(
+        "--hover-penalty",
+        type=float,
+        default=0.02,
+        help="Penalty for choosing hover/stay outside the current target set.",
     )
     parser.add_argument(
         "--shapes",
@@ -161,7 +193,7 @@ def main() -> None:
     parser.add_argument(
         "--tb-logdir",
         type=str,
-        default="runs_comm",
+        default="runs_comm20",
         help="TensorBoard log directory (empty string disables logging).",
     )
     args = parser.parse_args()
@@ -169,24 +201,43 @@ def main() -> None:
     device = torch.device(args.device)
     torch.manual_seed(args.seed)
 
-    shapes = [s.strip() for s in args.shapes.split(",") if s.strip()]
+    shapes = [shape.strip() for shape in args.shapes.split(",") if shape.strip()]
 
     env = make_env(
         seed=args.seed,
         device=device,
+        grid_size=args.grid_size,
+        n_agents=args.n_agents,
+        max_steps=args.max_steps,
         comm_fail_prob=args.comm_fail_prob,
         shaping_coef=args.shaping_coef,
+        assigned_target_reward=args.assigned_target_reward,
+        coverage_delta_reward=args.coverage_delta_reward,
+        hover_penalty=args.hover_penalty,
         shapes=shapes,
     )
 
     probe = ShapeFormationEnv(
+        grid_size=args.grid_size,
+        n_agents=args.n_agents,
+        max_steps=args.max_steps,
         comm_fail_prob=args.comm_fail_prob,
         shaping_coef=args.shaping_coef,
+        assigned_target_reward=args.assigned_target_reward,
+        coverage_delta_reward=args.coverage_delta_reward,
+        hover_penalty=args.hover_penalty,
         shapes=shapes,
     )
     obs_dim = probe.obs_dim
     n_actions = 5
     n_agents = probe.n_agents
+
+    print(
+        f"Training config: grid_size={args.grid_size}, n_agents={n_agents}, "
+        f"max_steps={args.max_steps}, obs_dim={obs_dim}, shapes='{probe.formation_path.label}', "
+        f"assigned_target_reward={args.assigned_target_reward}, "
+        f"coverage_delta_reward={args.coverage_delta_reward}, hover_penalty={args.hover_penalty}"
+    )
 
     actor, critic = build_models(obs_dim, n_actions, n_agents, args.hidden, device)
 
@@ -220,9 +271,7 @@ def main() -> None:
         advantage=(GROUP, "advantage"),
         value_target=(GROUP, "value_target"),
     )
-    loss_module.make_value_estimator(
-        ValueEstimators.GAE, gamma=args.gamma, lmbda=args.lmbda
-    )
+    loss_module.make_value_estimator(ValueEstimators.GAE, gamma=args.gamma, lmbda=args.lmbda)
     gae = loss_module.value_estimator
 
     collector = SyncDataCollector(
@@ -247,7 +296,7 @@ def main() -> None:
 
     writer = None
     if args.tb_logdir and SummaryWriter is not None:
-        run_name = f"shape_comm_{int(time.time())}"
+        run_name = f"shape_comm20_{int(time.time())}"
         writer = SummaryWriter(log_dir=str(Path(args.tb_logdir) / run_name))
         print(f"TensorBoard logging -> {writer.log_dir}")
     elif args.tb_logdir and SummaryWriter is None:
@@ -288,14 +337,8 @@ def main() -> None:
         finished_rewards = ep_rew[done]
         finished_terminated = terminated[done]
         n_finished_entries = finished_rewards.numel()
-        mean_ep = (
-            finished_rewards.mean().item() if n_finished_entries > 0 else float("nan")
-        )
-        success_rate = (
-            finished_terminated.float().mean().item()
-            if n_finished_entries > 0
-            else float("nan")
-        )
+        mean_ep = finished_rewards.mean().item() if n_finished_entries > 0 else float("nan")
+        success_rate = finished_terminated.float().mean().item() if n_finished_entries > 0 else float("nan")
         avg_loss = running_loss / max(1, n_updates)
         frames_seen = (it + 1) * args.frames_per_batch
         print(
