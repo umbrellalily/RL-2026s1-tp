@@ -9,11 +9,6 @@ This file intentionally keeps the user-facing name ``shapes`` instead of
 
 If the first name is not ``GROUND``, ``GROUND`` is automatically prepended.
 For example, ``X,I,-`` is interpreted as ``GROUND,X,I,-``.
-
-Default scale
--------------
-The current default bank is for 20 drones on a 25x25 grid. The GROUND formation
-is generated dynamically from ``grid_size`` and ``n_agents``.
 """
 from __future__ import annotations
 
@@ -49,138 +44,66 @@ class FormationPath:
         return len(self.targets)
 
 
-# 20-cell target shapes on a 25x25 grid, centered around row/col 12.
-# Every non-GROUND formation must have exactly 20 cells.
-SHAPES_20: dict[str, list[GridPos]] = {
-    "I": [(r, 12) for r in range(3, 23)],
-
-    "-": [(12, c) for c in range(3, 23)],
-
-    "+": [
-        # vertical arm: 11 cells
-        (6, 12), (7, 12), (8, 12), (9, 12), (10, 12),
-        (11, 12), (12, 12), (13, 12), (14, 12), (15, 12), (16, 12),
-        # horizontal arm: 10 cells, center (12, 12) already included
-        (12, 8), (12, 9), (12, 10), (12, 11),
-        (12, 13), (12, 14), (12, 15), (12, 16), (12, 17),
+# Ten-cell target shapes on a 15x15 grid, centered around (7, 7).
+# GROUND is generated dynamically by make_ground_line because it depends on
+# grid_size and n_agents.
+SHAPES: dict[str, list[GridPos]] = {
+    "I": [
+        (3, 7), (4, 7), (5, 7), (6, 7), (7, 7),
+        (8, 7), (9, 7), (10, 7), (11, 7), (12, 7),
     ],
-
-    "X": [
-        # left-top to right-bottom diagonal
-        (5, 5), (6, 6), (7, 7), (8, 8), (9, 9),
-        (10, 10), (11, 11), (12, 12), (13, 13), (14, 14),
-        # right-top to left-bottom diagonal, shifted to avoid duplicate center
-        (5, 18), (6, 17), (7, 16), (8, 15), (9, 14),
-        (10, 13), (11, 12), (12, 11), (13, 10), (14, 9),
+    "-": [
+        (7, 3), (7, 4), (7, 5), (7, 6), (7, 7),
+        (7, 8), (7, 9), (7, 10), (7, 11), (7, 12),
     ],
-
-    "T": [
-        (5, 7), (5, 8), (5, 9), (5, 10), (5, 11), (5, 12),
-        (5, 13), (5, 14), (5, 15), (5, 16), (5, 17), (5, 18),
-        (6, 12), (7, 12), (8, 12), (9, 12),
-        (10, 12), (11, 12), (12, 12), (13, 12),
-    ],
-
     "L": [
-        (5, 6), (6, 6), (7, 6), (8, 6), (9, 6),
-        (10, 6), (11, 6), (12, 6), (13, 6), (14, 6),
-        (15, 6), (16, 6), (17, 6), (18, 6),
-        (18, 7), (18, 8), (18, 9), (18, 10), (18, 11), (18, 12),
+        (3, 5), (4, 5), (5, 5), (6, 5), (7, 5),
+        (8, 5), (9, 5), (9, 6), (9, 7), (9, 8),
+    ],
+    "T": [
+        (4, 5), (4, 6), (4, 7), (4, 8), (4, 9),
+        (5, 7), (6, 7), (7, 7), (8, 7), (9, 7),
+    ],
+    "+": [
+        (4, 7), (5, 7), (6, 7),
+        (7, 5), (7, 6), (7, 7), (7, 8), (7, 9),
+        (8, 7), (9, 7),
+    ],
+    "X": [
+        (4, 4), (5, 5), (5, 9), (6, 6), (6, 8),
+        (7, 7), (8, 6), (8, 8), (9, 5), (9, 9),
     ],
 
     "O": [
-        (6, 9), (6, 10), (6, 11), (6, 12), (6, 13), (6, 14),
-        (16, 9), (16, 10), (16, 11), (16, 12), (16, 13), (16, 14),
-        (8, 9), (10, 9), (12, 9), (14, 9),
-        (8, 14), (10, 14), (12, 14), (14, 14),
+        (4, 5), (4, 6), (4, 7),
+        (5, 5),         (5, 8),
+        (6, 5),         (6, 8),
+        (7, 5), (7, 6), (7, 7),
     ],
 
     "V": [
-        (5, 5), (6, 5), (7, 6), (8, 6), (9, 7),
-        (10, 8), (11, 9), (12, 10), (13, 11), (15, 12),
-        (5, 19), (6, 19), (7, 18), (8, 18), (9, 17),
-        (10, 16), (11, 15), (12, 14), (13, 13), (15, 13),
+        (3, 4),
+        (4, 4),
+        (5, 5),
+        (6, 5),
+        (7, 6),
+        (8, 7),
+        (7, 8),
+        (6, 9),
+        (5, 9),
+        (4, 10),
     ],
 
     "E": [
-        (5, 6), (6, 6), (7, 6), (8, 6),
-        (9, 6), (10, 6), (11, 6), (12, 6),
-        (5, 7), (5, 8), (5, 9), (5, 10),
-        (9, 7), (9, 8), (9, 9), (9, 10),
-        (12, 7), (12, 8), (12, 9), (12, 10),
-    ],
-
-    "A": [
-        (16, 5), (15, 6), (14, 7), (13, 8), (12, 9),
-        (11, 10), (10, 11), (9, 12),
-        (10, 13), (11, 14), (12, 15), (13, 16),
-        (14, 17), (15, 18), (16, 19),
-        (13, 9), (13, 10), (13, 11), (13, 12), (13, 13),
-    ],
-
-    "H": [
-        (5, 6), (6, 6), (7, 6), (8, 6), (9, 6),
-        (10, 6), (11, 6), (12, 6),
-        (5, 16), (6, 16), (7, 16), (8, 16), (9, 16),
-        (10, 16), (11, 16), (12, 16),
-        (9, 7), (9, 8), (9, 9), (9, 10),
-    ],
-
-    "N": [
-        (5, 6), (6, 6), (7, 6), (8, 6), (9, 6),
-        (10, 6), (11, 6), (12, 6),
-        (5, 17), (6, 17), (7, 17), (8, 17), (9, 17),
-        (10, 17), (11, 17), (12, 17),
-        (7, 8), (8, 10), (9, 12), (10, 14),
-    ],
-
-    "DIAMOND": [
-        (4, 12),
-        (5, 11), (5, 13),
-        (6, 10), (6, 14),
-        (7, 9), (7, 15),
-        (8, 8), (8, 16),
-        (9, 9), (9, 15),
-        (10, 10), (10, 14),
-        (11, 11), (11, 13),
-        (12, 12),
-        (13, 11), (13, 13),
-        (14, 10), (14, 14),
-    ],
-
-    "ARROW_UP": [
-        (4, 12),
-        (5, 11), (5, 12), (5, 13),
-        (6, 10), (6, 11), (6, 12), (6, 13), (6, 14),
-        (7, 12), (8, 12), (9, 12), (10, 12), (11, 12),
-        (12, 12), (13, 12), (14, 12), (15, 12), (16, 12), (17, 12),
-    ],
-
-    "SQUARE": [
-        (6, 7), (6, 8), (6, 9), (6, 10), (6, 11), (6, 12),
-        (14, 7), (14, 8), (14, 9), (14, 10), (14, 11), (14, 12),
-        (7, 7), (8, 7), (9, 7), (10, 7),
-        (7, 12), (8, 12), (9, 12), (10, 12),
+        (3, 5), (3, 6), (3, 7),
+        (4, 5),
+        (5, 5), (5, 6),
+        (6, 5),
+        (7, 5), (7, 6), (7 ,7),
     ],
 }
 
-# Compatibility alias: current project uses SHAPES as the active bank.
-SHAPES: dict[str, list[GridPos]] = SHAPES_20
 
-# LOVE aliases keep old command examples readable.
-SHAPES["LOVE_L"] = list(SHAPES["L"])
-SHAPES["LOVE_O"] = list(SHAPES["O"])
-SHAPES["LOVE_V"] = list(SHAPES["V"])
-SHAPES["LOVE_E"] = list(SHAPES["E"])
-
-
-def _validate_shape_bank() -> None:
-    bad = {name: len(cells) for name, cells in SHAPES.items() if len(set(cells)) != 20 or len(cells) != 20}
-    if bad:
-        raise ValueError(f"Every 20-drone shape must have 20 unique cells. Bad shapes: {bad}")
-
-
-_validate_shape_bank()
 
 
 def available_shape_names(include_ground: bool = True) -> list[str]:
@@ -240,21 +163,17 @@ def get_shape(
     cells = list(SHAPES[name])
     if len(cells) != n_agents:
         raise ValueError(
-            f"Shape {name!r} has {len(cells)} cells, but n_agents={n_agents}. "
-            "Use the 20-drone defaults or define a matching formation bank."
+            f"Shape {name!r} has {len(cells)} cells, but n_agents={n_agents}"
         )
-
-    for row, col in cells:
-        if not (0 <= row < grid_size and 0 <= col < grid_size):
-            raise ValueError(
-                f"Shape {name!r} contains cell {(row, col)} outside {grid_size}x{grid_size}."
-            )
-
     return Formation(name=name, cells=cells)
 
 
 def normalize_shape_names(names: list[str]) -> list[str]:
-    """Ensure the path starts from GROUND."""
+    """Ensure the path starts from GROUND.
+
+    ``['X', 'I']`` becomes ``['GROUND', 'X', 'I']``.
+    ``['GROUND', 'X']`` is left unchanged.
+    """
     clean = [name.strip() for name in names if name.strip()]
     if not clean:
         clean = ["GROUND", "X"]
@@ -302,3 +221,5 @@ def parse_shapes_arg(
         ground_row=ground_row,
         ground_start_col=ground_start_col,
     )
+ names = [s.strip() for s in sequence.split(",") if s.strip()]
+    return build_sequence(names=names, grid_size=grid_size, n_agents=n_agents)

@@ -53,7 +53,7 @@ class ShapeFormationEnv(ParallelEnv):
         target_shapes: list[str] | None = None,
         formation_path: FormationPath | None = None,
         comm_fail_prob: float = 0.0,
-        completion_reward: float = 10.0,
+        completion_reward: float = 30.0,
         on_target_reward: float = 0.1,
         collision_penalty: float = 0.2,
         step_penalty: float = 0.01,

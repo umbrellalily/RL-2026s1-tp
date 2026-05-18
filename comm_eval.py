@@ -93,7 +93,7 @@ def _snapshot_frame(base):
         "positions": dict(base.agent_pos),
         "target_cells": list(base.target_cells),
         "target_shape": base.target_shape_name,
-        "stage_idx": base.stage_idx,
+        "stage_idx": base.stage_iddex,
         "num_stages": len(base.formation_path.targets),
         "stages_completed": base.stage_done_count,
         "occupied_count": getattr(base, "last_occupied_count", 0),
