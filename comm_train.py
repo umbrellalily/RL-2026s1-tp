@@ -43,6 +43,7 @@ def make_env(
     max_steps: int,
     comm_fail_prob: float,
     shaping_coef: float,
+    completion_reward: float,
     assigned_target_reward: float,
     coverage_delta_reward: float,
     hover_penalty: float,
@@ -54,6 +55,7 @@ def make_env(
         max_steps=max_steps,
         comm_fail_prob=comm_fail_prob,
         shaping_coef=shaping_coef,
+        completion_reward=completion_reward,
         assigned_target_reward=assigned_target_reward,
         coverage_delta_reward=coverage_delta_reward,
         hover_penalty=hover_penalty,
@@ -143,7 +145,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--save-dir", type=str, default="checkpoints_comm20")
-    parser.add_argument("--ckpt-every", type=int, default=5)
+    parser.add_argument("--ckpt-every", type=int, default=10)
     parser.add_argument(
         "--comm-fail-prob",
         type=float,
@@ -157,6 +159,12 @@ def main() -> None:
         help="Potential-based shaping coefficient toward assigned target. 0 disables.",
     )
     parser.add_argument(
+        "--completion-reward",
+        type=float,
+        default=30.0,
+        help="Team reward given to every drone when the current formation stage is completed.",
+    )
+    parser.add_argument(
         "--assigned-target-reward",
         type=float,
         default=0.3,
@@ -165,7 +173,7 @@ def main() -> None:
     parser.add_argument(
         "--coverage-delta-reward",
         type=float,
-        default=0.05,
+        default=0.2,
         help="Team reward multiplier when the stage reaches a new best target coverage count.",
     )
     parser.add_argument(
@@ -196,12 +204,6 @@ def main() -> None:
         default="runs_comm20",
         help="TensorBoard log directory (empty string disables logging).",
     )
-    parser.add_argument(
-        "--completion-reward",
-        type=float,
-        default=10.0,
-        help="Team reward given to all drones when the current formation stage is completed.",
-    )
     args = parser.parse_args()
 
     device = torch.device(args.device)
@@ -217,9 +219,9 @@ def main() -> None:
         max_steps=args.max_steps,
         comm_fail_prob=args.comm_fail_prob,
         shaping_coef=args.shaping_coef,
+        completion_reward=args.completion_reward,
         assigned_target_reward=args.assigned_target_reward,
         coverage_delta_reward=args.coverage_delta_reward,
-        completion_reward=completion_reward,
         hover_penalty=args.hover_penalty,
         shapes=shapes,
     )
@@ -243,6 +245,7 @@ def main() -> None:
     print(
         f"Training config: grid_size={args.grid_size}, n_agents={n_agents}, "
         f"max_steps={args.max_steps}, obs_dim={obs_dim}, shapes='{probe.formation_path.label}', "
+        f"completion_reward={args.completion_reward}, "
         f"assigned_target_reward={args.assigned_target_reward}, "
         f"coverage_delta_reward={args.coverage_delta_reward}, hover_penalty={args.hover_penalty}"
     )

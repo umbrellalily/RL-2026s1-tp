@@ -68,13 +68,14 @@ def build_actor(obs_dim, n_actions, n_agents, hidden, device):
     )
 
 
-def make_env(seed, device, grid_size, n_agents, max_steps, shapes, comm_fail_prob):
+def make_env(seed, device, grid_size, n_agents, max_steps, shapes, comm_fail_prob, completion_reward):
     base = ShapeFormationEnv(
         grid_size=grid_size,
         n_agents=n_agents,
         max_steps=max_steps,
         shapes=shapes,
         comm_fail_prob=comm_fail_prob,
+        completion_reward=completion_reward,
         shaping_coef=0.0,
     )
     env = PettingZooWrapper(
@@ -93,7 +94,7 @@ def _snapshot_frame(base):
         "positions": dict(base.agent_pos),
         "target_cells": list(base.target_cells),
         "target_shape": base.target_shape_name,
-        "stage_idx": base.stage_iddex,
+        "stage_idx": base.stage_idx,
         "num_stages": len(base.formation_path.targets),
         "stages_completed": base.stage_done_count,
         "occupied_count": getattr(base, "last_occupied_count", 0),
@@ -225,6 +226,12 @@ def main() -> None:
     parser.add_argument(
         "--comm-fail-prob", type=float, default=0.0,
         help="evaluate under simulated communication loss",
+    )
+    parser.add_argument(
+        "--completion-reward",
+        type=float,
+        default=30.0,
+        help="Reward scale used only for reported evaluation reward; success/GIF are unaffected.",
     )
     parser.add_argument("--render", action="store_true")
     parser.add_argument("--render-delay", type=float, default=0.3)
