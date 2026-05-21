@@ -264,6 +264,7 @@ def main() -> None:
             n_agents=args.n_agents,
             max_steps=args.max_steps,
             shapes=shapes,
+            completion_reward=args.completion_reward,
             comm_fail_prob=args.comm_fail_prob,
         )
         actor = build_actor(base.obs_dim, 5, base.n_agents, args.hidden, device)
@@ -303,6 +304,7 @@ def main() -> None:
                 n_agents=args.n_agents,
                 max_steps=args.max_steps,
                 shapes=shapes,
+                completion_reward=args.completion_reward,
                 comm_fail_prob=args.comm_fail_prob,
             )
             demo = rollout(
