@@ -156,47 +156,89 @@ def render_ascii(grid_size, target_cells, positions):
 
 
 def save_gif(grid_size: int, history, path: Path, fps: int = 4) -> None:
+    """Render an episode as a GIF with LED on/off drone visualization.
+
+    LED ON/OFF semantics
+    --------------------
+    Each drone has a single LED. The LED is ON iff the drone currently sits
+    on a target cell of the active stage; otherwise it is OFF and the drone
+    is interpreted as hovering off-target.
+
+      LED ON  -> warm amber (uniform across all drones) + glow halo
+      LED OFF -> small dim gray dot (hovering / in transit)
+
+    All drones share the same LED color when ON so the forming letter/shape
+    reads as a single coherent light, like a real drone show.
+    """
     import matplotlib.patches as patches
     import matplotlib.pyplot as plt
     from matplotlib.animation import FuncAnimation, PillowWriter
 
-    fig, ax = plt.subplots(figsize=(6, 6))
-    cmap = plt.get_cmap("tab20")
+    # Warm-amber palette for ON LEDs (mimics drone-show LED at night)
+    LED_CORE = "#ffd24a"      # bright warm yellow core
+    LED_RIM = "#fff4b3"       # pale yellow rim
+    LED_GLOW = "#ffc94a"      # halo color
+    LED_OFF_FACE = "#3a3a44"  # dim gray off-state
+    LED_OFF_EDGE = "#555"
+
+    fig, ax = plt.subplots(figsize=(7, 7), facecolor="#0a0a14")
+    ax.set_facecolor("#0a0a14")
 
     def draw(step: int) -> None:
         frame = history[step]
         ax.clear()
+        ax.set_facecolor("#0a0a14")
         ax.set_xlim(-0.5, grid_size - 0.5)
         ax.set_ylim(-0.5, grid_size - 0.5)
         ax.invert_yaxis()
-        ax.set_xticks(range(grid_size))
-        ax.set_yticks(range(grid_size))
-        ax.grid(True, color="lightgray", linewidth=0.4)
+        ax.set_xticks(range(0, grid_size, 2))
+        ax.set_yticks(range(0, grid_size, 2))
+        ax.tick_params(colors="#666")
+        for spine in ax.spines.values():
+            spine.set_color("#333")
+        ax.grid(True, color="#222", linewidth=0.4)
         ax.set_aspect("equal")
+        target_set = set(frame["target_cells"])
+        n_on = sum(1 for pos in frame["positions"].values() if pos in target_set)
         ax.set_title(
             f"{frame['shapes_path']} | stage "
             f"{frame['stage_idx'] + 1}/{frame['num_stages']} "
             f"target='{frame['target_shape']}' | "
-            f"cover={frame['occupied_count']}/{frame['target_count']} | "
-            f"step {step}/{len(history) - 1}"
+            f"LED on={n_on}/{frame['target_count']} | "
+            f"step {step}/{len(history) - 1}",
+            color="#dddddd",
+            fontsize=10,
         )
+        # Target cells: faint dotted outline so the desired formation is
+        # visible but doesn't outshine lit drones.
         for (r, c) in frame["target_cells"]:
-            ax.add_patch(
-                patches.Rectangle(
-                    (c - 0.5, r - 0.5), 1, 1, facecolor="#ffe0e0", edgecolor="none"
-                )
-            )
-        for i, (agent, (r, c)) in enumerate(frame["positions"].items()):
-            ax.add_patch(
-                patches.Circle(
-                    (c, r), 0.35, facecolor=cmap(i % 20), edgecolor="black", linewidth=1.0
-                )
-            )
-            ax.text(
-                c, r, agent.split("_")[-1],
-                color="white", ha="center", va="center",
-                fontsize=7, fontweight="bold",
-            )
+            ax.add_patch(patches.Rectangle(
+                (c - 0.5, r - 0.5), 1, 1,
+                facecolor="#1c1c2e", edgecolor="#3a3a55",
+                linewidth=0.6, linestyle=(0, (2, 2)),
+            ))
+        # Drones with LED on/off rendering -- ALL share the same LED color.
+        for agent, (r, c) in frame["positions"].items():
+            led_on = (r, c) in target_set
+            if led_on:
+                # Outer warm-amber glow (3 expanding translucent disks)
+                for glow_r, glow_alpha in [(0.85, 0.10), (0.65, 0.20), (0.48, 0.35)]:
+                    ax.add_patch(patches.Circle(
+                        (c, r), glow_r,
+                        facecolor=LED_GLOW, edgecolor="none", alpha=glow_alpha,
+                    ))
+                # Bright core with pale rim
+                ax.add_patch(patches.Circle(
+                    (c, r), 0.34,
+                    facecolor=LED_CORE, edgecolor=LED_RIM, linewidth=1.6,
+                ))
+            else:
+                # Dim, neutral drone (LED off / hovering / in transit)
+                ax.add_patch(patches.Circle(
+                    (c, r), 0.22,
+                    facecolor=LED_OFF_FACE, edgecolor=LED_OFF_EDGE,
+                    linewidth=0.5, alpha=0.85,
+                ))
 
     anim = FuncAnimation(fig, draw, frames=len(history), interval=1000 // fps)
     anim.save(str(path), writer=PillowWriter(fps=fps))
@@ -264,7 +306,6 @@ def main() -> None:
             n_agents=args.n_agents,
             max_steps=args.max_steps,
             shapes=shapes,
-            completion_reward=args.completion_reward,
             comm_fail_prob=args.comm_fail_prob,
         )
         actor = build_actor(base.obs_dim, 5, base.n_agents, args.hidden, device)
@@ -304,7 +345,6 @@ def main() -> None:
                 n_agents=args.n_agents,
                 max_steps=args.max_steps,
                 shapes=shapes,
-                completion_reward=args.completion_reward,
                 comm_fail_prob=args.comm_fail_prob,
             )
             demo = rollout(
