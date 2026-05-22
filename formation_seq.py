@@ -8,14 +8,13 @@ A comma-separated shapes argument such as ``GROUND,A,B,C`` means:
     start at GROUND -> move to A -> move to B -> move to C
 
 Default scale:
-    20 drones on a 25x25 grid.
+    14 drones on a 25x25 grid.
 
-Alphabet formations A-Z are defined as 5x7 bitmaps in LETTER_BITMAPS.
-Each bitmap is converted into exactly n_agents target cells by:
-    1. reading lit bitmap pixels,
-    2. centering them on the grid,
-    3. scaling bitmap pixels into grid coordinates,
-    4. deterministically trimming or expanding to exactly n_agents cells.
+Alphabet formations A-Z are 5x7 bitmaps in LETTER_BITMAPS, each with exactly
+14 lit pixels, so a bitmap maps to exactly 14 drones with no trimming or
+expansion. Bitmaps are placed on the grid at scale 3 (drones spaced 3 cells).
+Special shapes (-, +, DIAMOND, ARROW_UP, SQUARE) do not fit a small bitmap, so
+they are defined directly as explicit 25x25 grid coordinates in EXTRA_SHAPES.
 """
 from __future__ import annotations
 
@@ -53,292 +52,59 @@ class FormationPath:
         return len(self.targets)
 
 
-# 5x7 pixel-font alphabet. "1" means a lit pixel / target candidate.
+# 5x7 pixel-font alphabet. Each letter has exactly 14 lit pixels ("1"), so it
+# maps to exactly 14 drones (= n_agents) without trimming or expansion.
 LETTER_BITMAPS: dict[str, list[str]] = {
-    "A": [
-        "01110",
-        "10001",
-        "10001",
-        "11111",
-        "10001",
-        "10001",
-        "10001",
-    ],
-    "B": [
-        "11110",
-        "10001",
-        "10001",
-        "11110",
-        "10001",
-        "10001",
-        "11110",
-    ],
-    "C": [
-        "01111",
-        "10000",
-        "10000",
-        "10000",
-        "10000",
-        "10000",
-        "01111",
-    ],
-    "D": [
-        "11110",
-        "10001",
-        "10001",
-        "10001",
-        "10001",
-        "10001",
-        "11110",
-    ],
-    "E": [
-        "11111",
-        "10000",
-        "10000",
-        "11110",
-        "10000",
-        "10000",
-        "11111",
-    ],
-    "F": [
-        "11111",
-        "10000",
-        "10000",
-        "11110",
-        "10000",
-        "10000",
-        "10000",
-    ],
-    "G": [
-        "01111",
-        "10000",
-        "10000",
-        "10111",
-        "10001",
-        "10001",
-        "01111",
-    ],
-    "H": [
-        "10001",
-        "10001",
-        "10001",
-        "11111",
-        "10001",
-        "10001",
-        "10001",
-    ],
-    "I": [
-        "11111",
-        "00100",
-        "00100",
-        "00100",
-        "00100",
-        "00100",
-        "11111",
-    ],
-    "J": [
-        "00111",
-        "00010",
-        "00010",
-        "00010",
-        "00010",
-        "10010",
-        "01100",
-    ],
-    "K": [
-        "10001",
-        "10010",
-        "10100",
-        "11000",
-        "10100",
-        "10010",
-        "10001",
-    ],
-    "L": [
-        "10000",
-        "10000",
-        "10000",
-        "10000",
-        "10000",
-        "10000",
-        "11111",
-    ],
-    "M": [
-        "10001",
-        "11011",
-        "10101",
-        "10101",
-        "10001",
-        "10001",
-        "10001",
-    ],
-    "N": [
-        "10001",
-        "11001",
-        "10101",
-        "10011",
-        "10001",
-        "10001",
-        "10001",
-    ],
-    "O": [
-        "01110",
-        "10001",
-        "10001",
-        "10001",
-        "10001",
-        "10001",
-        "01110",
-    ],
-    "P": [
-        "11110",
-        "10001",
-        "10001",
-        "11110",
-        "10000",
-        "10000",
-        "10000",
-    ],
-    "Q": [
-        "01110",
-        "10001",
-        "10001",
-        "10001",
-        "10101",
-        "10010",
-        "01101",
-    ],
-    "R": [
-        "11110",
-        "10001",
-        "10001",
-        "11110",
-        "10100",
-        "10010",
-        "10001",
-    ],
-    "S": [
-        "01111",
-        "10000",
-        "10000",
-        "01110",
-        "00001",
-        "00001",
-        "11110",
-    ],
-    "T": [
-        "11111",
-        "00100",
-        "00100",
-        "00100",
-        "00100",
-        "00100",
-        "00100",
-    ],
-    "U": [
-        "10001",
-        "10001",
-        "10001",
-        "10001",
-        "10001",
-        "10001",
-        "01110",
-    ],
-    "V": [
-        "10001",
-        "10001",
-        "10001",
-        "10001",
-        "01010",
-        "01010",
-        "00100",
-    ],
-    "W": [
-        "10001",
-        "10001",
-        "10001",
-        "10101",
-        "10101",
-        "10101",
-        "01010",
-    ],
-    "X": [
-        "10001",
-        "01010",
-        "01010",
-        "00100",
-        "01010",
-        "01010",
-        "10001",
-    ],
-    "Y": [
-        "10001",
-        "01010",
-        "01010",
-        "00100",
-        "00100",
-        "00100",
-        "00100",
-    ],
-    "Z": [
-        "11111",
-        "00001",
-        "00010",
-        "00100",
-        "01000",
-        "10000",
-        "11111",
-    ],
+    "A": ["00100", "01010", "10001", "11111", "10001", "10001", "00000"],
+    "B": ["11100", "10010", "11100", "10010", "10010", "01100", "00000"],
+    "C": ["11110", "10000", "10000", "10000", "10000", "10000", "11111"],
+    "D": ["11100", "10010", "10010", "10010", "10010", "11100", "00000"],
+    "E": ["11110", "10000", "11100", "10000", "10000", "11110", "00000"],
+    "F": ["11111", "10000", "10000", "11110", "10000", "10000", "10000"],
+    "G": ["01110", "10000", "10000", "10011", "10000", "10001", "01110"],
+    "H": ["10001", "10001", "10001", "11011", "10001", "10001", "00000"],
+    "I": ["11111", "00100", "00100", "00100", "00100", "00100", "11110"],
+    "J": ["11111", "00010", "00010", "00010", "10010", "10010", "01100"],
+    "K": ["10001", "10010", "10100", "11000", "10100", "10010", "10001"],
+    "L": ["11100", "11000", "10000", "10000", "10000", "10000", "11111"],
+    "M": ["10001", "11011", "10101", "10101", "10001", "00000", "00000"],
+    "N": ["10001", "11001", "10101", "10011", "10001", "10000", "00000"],
+    "O": ["01110", "10001", "10001", "10001", "10001", "01110", "00000"],
+    "P": ["11110", "10001", "10001", "11110", "10000", "10000", "00000"],
+    "Q": ["01110", "10001", "10001", "10001", "01110", "00010", "00001"],
+    "R": ["11100", "10010", "11100", "10100", "10010", "10001", "00000"],
+    "S": ["01111", "10000", "01110", "00001", "00001", "11110", "00000"],
+    "T": ["11111", "11111", "00100", "00100", "00100", "00100", "00000"],
+    "U": ["10001", "10001", "10001", "10001", "10001", "10001", "01010"],
+    "V": ["11001", "10001", "10001", "01010", "01010", "01010", "00100"],
+    "W": ["10001", "10001", "10001", "10101", "10101", "01010", "00000"],
+    "X": ["11001", "01010", "01010", "00100", "01010", "01010", "10001"],
+    "Y": ["11011", "10001", "10001", "01010", "01010", "00100", "00100"],
+    "Z": ["01111", "00001", "00010", "00100", "01000", "10000", "11111"],
 }
 
 
-# Extra non-alphabet formations. These are kept as explicit 20-cell shapes because
-# they are not naturally represented as 5x7 letters.
-EXTRA_SHAPES_20: dict[str, list[GridPos]] = {
-    "-": [(12, c) for c in range(3, 23)],
-    "PLUS": [
-        (6, 12), (7, 12), (8, 12), (9, 12), (10, 12),
-        (11, 12), (12, 12), (13, 12), (14, 12), (15, 12), (16, 12),
-        (12, 8), (12, 9), (12, 10), (12, 11),
-        (12, 13), (12, 14), (12, 15), (12, 16), (12, 17),
-    ],
-    "+": [
-        (6, 12), (7, 12), (8, 12), (9, 12), (10, 12),
-        (11, 12), (12, 12), (13, 12), (14, 12), (15, 12), (16, 12),
-        (12, 8), (12, 9), (12, 10), (12, 11),
-        (12, 13), (12, 14), (12, 15), (12, 16), (12, 17),
-    ],
-    "CROSS": [
-        (5, 5), (6, 6), (7, 7), (8, 8), (9, 9),
-        (10, 10), (11, 11), (12, 12), (13, 13), (14, 14),
-        (5, 18), (6, 17), (7, 16), (8, 15), (9, 14),
-        (10, 13), (11, 12), (12, 11), (13, 10), (14, 9),
-    ],
+# Non-alphabet shapes, hand-placed directly as 14 explicit coordinates on the
+# 25x25 grid. Linear / geometric shapes do not fit a small 5x7 bitmap, so they
+# bypass the bitmap pipeline entirely.
+EXTRA_SHAPES: dict[str, list[GridPos]] = {
+    "-": [(11, c) for c in range(3, 22, 3)] + [(13, c) for c in range(3, 22, 3)],
+    "+": (
+        [(r, 12) for r in range(4, 19, 2)]
+        + [(12, c) for c in (6, 8, 10, 14, 16, 18)]
+    ),
     "DIAMOND": [
-        (4, 12),
-        (5, 11), (5, 13),
-        (6, 10), (6, 14),
-        (7, 9), (7, 15),
-        (8, 8), (8, 16),
-        (9, 9), (9, 15),
-        (10, 10), (10, 14),
-        (11, 11), (11, 13),
-        (12, 12),
-        (13, 11), (13, 13),
-        (14, 10), (14, 14),
+        (5, 12), (7, 9), (7, 15), (9, 6), (9, 18), (11, 4), (11, 20),
+        (13, 4), (13, 20), (15, 6), (15, 18), (17, 9), (17, 15), (19, 12),
     ],
     "ARROW_UP": [
-        (4, 12),
-        (5, 11), (5, 12), (5, 13),
-        (6, 10), (6, 11), (6, 12), (6, 13), (6, 14),
-        (7, 12), (8, 12), (9, 12), (10, 12), (11, 12),
-        (12, 12), (13, 12), (14, 12), (15, 12), (16, 12), (17, 12),
+        (4, 12), (6, 10), (6, 12), (6, 14), (8, 8), (8, 12), (8, 16),
+        (10, 12), (12, 12), (14, 12), (16, 12), (18, 12), (20, 12), (22, 12),
     ],
     "SQUARE": [
-        (6, 7), (6, 8), (6, 9), (6, 10), (6, 11), (6, 12),
-        (14, 7), (14, 8), (14, 9), (14, 10), (14, 11), (14, 12),
-        (7, 7), (8, 7), (9, 7), (10, 7),
-        (7, 12), (8, 12), (9, 12), (10, 12),
+        (6, 6), (6, 9), (6, 12), (6, 15), (6, 18),
+        (18, 6), (18, 9), (18, 12), (18, 15), (18, 18),
+        (10, 6), (14, 6), (10, 18), (14, 18),
     ],
 }
 
@@ -429,9 +195,9 @@ def _expand_to_n_cells(cells: list[GridPos], n_cells: int, grid_size: int) -> li
 
 def bitmap_to_n_cells(
     bitmap: list[str],
-    n_cells: int = 20,
+    n_cells: int = 14,
     grid_size: int = 25,
-    scale: int = 2,
+    scale: int = 3,
 ) -> list[GridPos]:
     """Convert a 5x7 bitmap into exactly n_cells centered grid coordinates."""
     if not bitmap:
@@ -472,9 +238,9 @@ def bitmap_to_n_cells(
 
 
 def build_letter_shapes(
-    n_cells: int = 20,
+    n_cells: int = 14,
     grid_size: int = 25,
-    scale: int = 2,
+    scale: int = 3,
 ) -> dict[str, list[GridPos]]:
     """Build A-Z grid-coordinate shapes from LETTER_BITMAPS."""
     return {
@@ -485,9 +251,12 @@ def build_letter_shapes(
 
 # This is where bitmap letters are converted into actual target coordinates and
 # registered as shapes.
-SHAPES: dict[str, list[GridPos]] = build_letter_shapes(n_cells=20, grid_size=25, scale=2)
-SHAPES.update(EXTRA_SHAPES_20)
+SHAPES: dict[str, list[GridPos]] = build_letter_shapes(n_cells=14, grid_size=25, scale=3)
+SHAPES.update(EXTRA_SHAPES)
 
+# Aliases: same coordinates registered under an alternative name.
+SHAPES["PLUS"] = list(SHAPES["+"])
+SHAPES["CROSS"] = list(SHAPES["X"])
 # LOVE aliases keep old command examples readable.
 SHAPES["LOVE_L"] = list(SHAPES["L"])
 SHAPES["LOVE_O"] = list(SHAPES["O"])
@@ -495,7 +264,7 @@ SHAPES["LOVE_V"] = list(SHAPES["V"])
 SHAPES["LOVE_E"] = list(SHAPES["E"])
 
 
-def _validate_shape_bank(expected_size: int = 20) -> None:
+def _validate_shape_bank(expected_size: int = 14) -> None:
     bad = {
         name: len(cells)
         for name, cells in SHAPES.items()
@@ -507,7 +276,7 @@ def _validate_shape_bank(expected_size: int = 20) -> None:
         )
 
 
-_validate_shape_bank(expected_size=20)
+_validate_shape_bank(expected_size=14)
 
 
 def available_shape_names(include_ground: bool = True) -> list[str]:
@@ -579,7 +348,7 @@ def get_shape(
     if len(cells) != n_agents:
         raise ValueError(
             f"Shape {name!r} has {len(cells)} cells, but n_agents={n_agents}. "
-            "The current bitmap bank is generated for 20 drones."
+            "The current shape bank is generated for 14 drones."
         )
 
     for row, col in cells:
@@ -641,6 +410,7 @@ def parse_shapes_arg(
         ground_start_col=ground_start_col,
     )
 
+
 def plot_all_letters(grid_size: int = 25):
     letters = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
     n_cols = 4
@@ -674,4 +444,5 @@ def plot_all_letters(grid_size: int = 25):
     plt.show()
 
 
-plot_all_letters()
+if __name__ == "__main__":
+    plot_all_letters()

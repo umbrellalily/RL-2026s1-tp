@@ -68,7 +68,8 @@ def build_actor(obs_dim, n_actions, n_agents, hidden, device):
     )
 
 
-def make_env(seed, device, grid_size, n_agents, max_steps, shapes, comm_fail_prob, completion_reward):
+def make_env(seed, device, grid_size, n_agents, max_steps, shapes, comm_fail_prob,
+             completion_reward=30.0, wind_prob=0.0, wind_strength=1, randomize_wind=False):
     base = ShapeFormationEnv(
         grid_size=grid_size,
         n_agents=n_agents,
@@ -77,6 +78,9 @@ def make_env(seed, device, grid_size, n_agents, max_steps, shapes, comm_fail_pro
         comm_fail_prob=comm_fail_prob,
         completion_reward=completion_reward,
         shaping_coef=0.0,
+        wind_prob=wind_prob,
+        wind_strength=wind_strength,
+        randomize_wind=randomize_wind,
     )
     env = PettingZooWrapper(
         env=base,
@@ -249,7 +253,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--ckpt", type=str, required=True)
     parser.add_argument("--grid-size", type=int, default=25)
-    parser.add_argument("--n-agents", type=int, default=20)
+    parser.add_argument("--n-agents", type=int, default=14)
     parser.add_argument("--max-steps", type=int, default=250)
     parser.add_argument("--n-episodes", type=int, default=200)
     parser.add_argument("--seed", type=int, default=0)
@@ -268,6 +272,18 @@ def main() -> None:
     parser.add_argument(
         "--comm-fail-prob", type=float, default=0.0,
         help="evaluate under simulated communication loss",
+    )
+    parser.add_argument(
+        "--wind-prob", type=float, default=0.0,
+        help="Per-step per-drone probability a wind gust perturbs the move. 0 disables wind.",
+    )
+    parser.add_argument(
+        "--wind-strength", type=int, default=1,
+        help="Number of cells a wind gust pushes a drone.",
+    )
+    parser.add_argument(
+        "--randomize-wind", action="store_true",
+        help="Sample wind severity from [0, wind_prob] and a random direction each episode.",
     )
     parser.add_argument(
         "--completion-reward",
@@ -307,6 +323,9 @@ def main() -> None:
             max_steps=args.max_steps,
             shapes=shapes,
             comm_fail_prob=args.comm_fail_prob,
+            wind_prob=args.wind_prob,
+            wind_strength=args.wind_strength,
+            randomize_wind=args.randomize_wind,
         )
         actor = build_actor(base.obs_dim, 5, base.n_agents, args.hidden, device)
         with torch.no_grad():
@@ -325,7 +344,7 @@ def main() -> None:
         print(
             f"=== Eval over {args.n_episodes} episodes "
             f"({'greedy' if args.greedy else 'stochastic'}, "
-            f"comm_fail_prob={args.comm_fail_prob}) ==="
+            f"comm_fail_prob={args.comm_fail_prob}, wind_prob={args.wind_prob}) ==="
         )
         print(f"  Grid / agents          : {args.grid_size}x{args.grid_size}, n_agents={args.n_agents}")
         print(f"  Shapes path            : {base.formation_path.label}")
@@ -346,6 +365,9 @@ def main() -> None:
                 max_steps=args.max_steps,
                 shapes=shapes,
                 comm_fail_prob=args.comm_fail_prob,
+                wind_prob=args.wind_prob,
+                wind_strength=args.wind_strength,
+                randomize_wind=args.randomize_wind,
             )
             demo = rollout(
                 demo_env, demo_base, actor, exploration,

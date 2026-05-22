@@ -2,12 +2,12 @@
 
 Default setup
 -------------
-- 25x25 grid, 20 drones, actions = {stay, up, down, left, right}.
+- 25x25 grid, 14 drones, actions = {stay, up, down, left, right}.
 - Formation coordinates are defined outside the environment in formation_seq.py.
 - A comma-separated ``shapes`` path such as ``GROUND,X,I,-`` means:
       start at GROUND -> move to X -> move to I -> move to -
-- GROUND is a bottom-row line. With grid_size=25 and n_agents=20, the
-  default start cells are (24, 2), ..., (24, 21).
+- GROUND is a bottom-row line. With grid_size=25 and n_agents=14, the
+  default start cells are (24, 5), ..., (24, 18).
 - Observation:
     [ own (row, col) / grid_size                         ]  2
     [ current target cells (row, col) / grid_size         ]  2*n_agents
@@ -47,7 +47,7 @@ class ShapeFormationEnv(ParallelEnv):
     def __init__(
         self,
         grid_size: int = 25,
-        n_agents: int = 20,
+        n_agents: int = 14,
         max_steps: int = 250,
         shapes: list[str] | None = None,
         target_shapes: list[str] | None = None,
@@ -63,6 +63,10 @@ class ShapeFormationEnv(ParallelEnv):
         hover_penalty: float = 0.02,
         ground_row: int | None = None,
         ground_start_col: int | None = None,
+        wind_prob: float = 0.0,
+        wind_strength: int = 1,
+        wind_dir: tuple[int, int] | None = None,
+        randomize_wind: bool = False,
     ):
         self.grid_size = grid_size
         self.n_agents = n_agents
@@ -78,6 +82,18 @@ class ShapeFormationEnv(ParallelEnv):
         self.hover_penalty = hover_penalty
         self.ground_row = ground_row
         self.ground_start_col = ground_start_col
+
+        # Wind disturbance (external robustness factor). wind_prob == 0 disables
+        # it entirely, so the default behaviour is unchanged. wind_dir is a
+        # (row, col) unit vector; None means a random cardinal direction per
+        # episode. randomize_wind samples this episode's severity from
+        # [0, wind_prob] for domain randomization.
+        self.wind_prob = wind_prob
+        self.wind_strength = wind_strength
+        self.wind_dir = wind_dir
+        self.randomize_wind = randomize_wind
+        self._cur_wind_prob: float = 0.0
+        self._cur_wind_dir: tuple[int, int] = (0, 0)
 
         # Backward-compatible naming: target_shapes is treated as the shapes path.
         if shapes is None and target_shapes is not None:
@@ -135,6 +151,23 @@ class ShapeFormationEnv(ParallelEnv):
         self.stage_idx = 0
         self.stage_done_count = 0
 
+        # Sample this episode's wind condition (direction fixed for the episode,
+        # occurrence drawn per step in step()).
+        if self.wind_prob > 0.0:
+            self._cur_wind_prob = (
+                float(self.np_random.uniform(0.0, self.wind_prob))
+                if self.randomize_wind
+                else self.wind_prob
+            )
+            if self.wind_dir is not None:
+                self._cur_wind_dir = self.wind_dir
+            else:
+                dirs = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+                self._cur_wind_dir = dirs[int(self.np_random.integers(4))]
+        else:
+            self._cur_wind_prob = 0.0
+            self._cur_wind_dir = (0, 0)
+
         # Start from the first formation, normally GROUND.
         if len(self.formation_path.start.cells) != self.n_agents:
             raise ValueError("start formation size must equal n_agents")
@@ -152,11 +185,16 @@ class ShapeFormationEnv(ParallelEnv):
     def step(self, actions: dict[str, int]):
         self.step_count += 1
 
-        # 1) Propose next positions (walls clip the move).
+        # 1) Propose next positions: action + wind gust, walls clip the move.
         proposed: dict[str, tuple[int, int]] = {}
+        wind_dr, wind_dc = self._cur_wind_dir
         for agent in self.possible_agents:
             r, c = self.agent_pos[agent]
             dr, dc = MOVES[int(actions[agent])]
+            # Wind perturbs the actual displacement (per-drone Bernoulli draw).
+            if self._cur_wind_prob > 0.0 and self.np_random.random() < self._cur_wind_prob:
+                dr += wind_dr * self.wind_strength
+                dc += wind_dc * self.wind_strength
             nr, nc = r + dr, c + dc
             proposed[agent] = (
                 (nr, nc) if 0 <= nr < self.grid_size and 0 <= nc < self.grid_size else (r, c)
@@ -241,6 +279,8 @@ class ShapeFormationEnv(ParallelEnv):
                 "occupied_count": self.last_occupied_count,
                 "best_occupied_count": self.best_occupied_count,
                 "coverage": self.last_occupied_count / max(1, len(self.target_cells)),
+                "wind_prob": self._cur_wind_prob,
+                "wind_dir": self._cur_wind_dir,
             }
             for agent in self.possible_agents
         }

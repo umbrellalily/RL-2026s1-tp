@@ -48,6 +48,9 @@ def make_env(
     coverage_delta_reward: float,
     hover_penalty: float,
     shapes: list[str] | None = None,
+    wind_prob: float = 0.0,
+    wind_strength: int = 1,
+    randomize_wind: bool = False,
 ) -> TransformedEnv:
     base = ShapeFormationEnv(
         grid_size=grid_size,
@@ -60,6 +63,9 @@ def make_env(
         coverage_delta_reward=coverage_delta_reward,
         hover_penalty=hover_penalty,
         shapes=shapes,
+        wind_prob=wind_prob,
+        wind_strength=wind_strength,
+        randomize_wind=randomize_wind,
     )
     env = PettingZooWrapper(
         env=base,
@@ -128,7 +134,7 @@ def build_models(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--grid-size", type=int, default=25)
-    parser.add_argument("--n-agents", type=int, default=20)
+    parser.add_argument("--n-agents", type=int, default=14)
     parser.add_argument("--max-steps", type=int, default=250)
     parser.add_argument("--total-frames", type=int, default=300_000)
     parser.add_argument("--frames-per-batch", type=int, default=4096)
@@ -193,6 +199,29 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--wind-prob",
+        type=float,
+        default=0.0,
+        help=(
+            "Per-step per-drone probability a wind gust perturbs the move. "
+            "0 disables wind. With --randomize-wind this acts as the upper bound."
+        ),
+    )
+    parser.add_argument(
+        "--wind-strength",
+        type=int,
+        default=1,
+        help="Number of cells a wind gust pushes a drone.",
+    )
+    parser.add_argument(
+        "--randomize-wind",
+        action="store_true",
+        help=(
+            "Domain randomization: each episode samples wind severity from "
+            "[0, wind_prob] and a random direction. Use to train a robust policy."
+        ),
+    )
+    parser.add_argument(
         "--load-ckpt",
         type=str,
         default="",
@@ -224,6 +253,9 @@ def main() -> None:
         coverage_delta_reward=args.coverage_delta_reward,
         hover_penalty=args.hover_penalty,
         shapes=shapes,
+        wind_prob=args.wind_prob,
+        wind_strength=args.wind_strength,
+        randomize_wind=args.randomize_wind,
     )
 
     probe = ShapeFormationEnv(
@@ -237,6 +269,9 @@ def main() -> None:
         coverage_delta_reward=args.coverage_delta_reward,
         hover_penalty=args.hover_penalty,
         shapes=shapes,
+        wind_prob=args.wind_prob,
+        wind_strength=args.wind_strength,
+        randomize_wind=args.randomize_wind,
     )
     obs_dim = probe.obs_dim
     n_actions = 5
@@ -249,6 +284,11 @@ def main() -> None:
         f"assigned_target_reward={args.assigned_target_reward}, "
         f"coverage_delta_reward={args.coverage_delta_reward}, hover_penalty={args.hover_penalty}"
     )
+    if args.wind_prob > 0.0:
+        print(
+            f"Wind: prob={args.wind_prob}, strength={args.wind_strength}, "
+            f"randomize={args.randomize_wind}"
+        )
 
     actor, critic = build_models(obs_dim, n_actions, n_agents, args.hidden, device)
 
