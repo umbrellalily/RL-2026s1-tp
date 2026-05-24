@@ -67,6 +67,8 @@ class ShapeFormationEnv(ParallelEnv):
         wind_strength: int = 1,
         wind_dir: tuple[int, int] | None = None,
         randomize_wind: bool = False,
+        random_shape_pool: list[str] | None = None,
+        random_path_length: int | tuple[int, int] | str = 3,
     ):
         self.grid_size = grid_size
         self.n_agents = n_agents
@@ -110,6 +112,27 @@ class ShapeFormationEnv(ParallelEnv):
         )
         self.shapes: list[str] = self.formation_path.names
         self.target_shapes: list[str] = self.shapes  # compatibility
+
+        # Per-episode random shape sequence (for generalization training).
+        # If random_shape_pool is given, reset() rebuilds formation_path each
+        # episode by sampling random_path_length targets from the pool, prepended
+        # with GROUND. random_path_length may be an int, (lo, hi) tuple, or
+        # "lo-hi" / "N" string.
+        self.random_shape_pool: list[str] | None = (
+            list(random_shape_pool) if random_shape_pool else None
+        )
+        if isinstance(random_path_length, str):
+            if "-" in random_path_length:
+                lo_s, hi_s = random_path_length.split("-")
+                self._rand_len_range = (int(lo_s), int(hi_s))
+            else:
+                n = int(random_path_length)
+                self._rand_len_range = (n, n)
+        elif isinstance(random_path_length, tuple):
+            self._rand_len_range = (int(random_path_length[0]), int(random_path_length[1]))
+        else:
+            n = int(random_path_length)
+            self._rand_len_range = (n, n)
 
         self.possible_agents: list[str] = [f"drone_{i}" for i in range(n_agents)]
         self.agents: list[str] = list(self.possible_agents)
@@ -167,6 +190,27 @@ class ShapeFormationEnv(ParallelEnv):
         else:
             self._cur_wind_prob = 0.0
             self._cur_wind_dir = (0, 0)
+
+        # If a random shape pool is configured, sample a fresh formation path
+        # for this episode. Episode always starts at GROUND so the start cells
+        # match self.n_agents.
+        if self.random_shape_pool:
+            lo, hi = self._rand_len_range
+            k = int(self.np_random.integers(lo, hi + 1))
+            sampled = [
+                self.random_shape_pool[int(self.np_random.integers(len(self.random_shape_pool)))]
+                for _ in range(k)
+            ]
+            names = ["GROUND"] + sampled
+            self.formation_path = build_shapes(
+                names=names,
+                grid_size=self.grid_size,
+                n_agents=self.n_agents,
+                ground_row=self.ground_row,
+                ground_start_col=self.ground_start_col,
+            )
+            self.shapes = self.formation_path.names
+            self.target_shapes = self.shapes
 
         # Start from the first formation, normally GROUND.
         if len(self.formation_path.start.cells) != self.n_agents:

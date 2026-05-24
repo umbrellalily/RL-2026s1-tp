@@ -60,6 +60,8 @@ def make_env(
     hover_battery_cost: float,
     move_battery_cost: float,
     low_battery_move_penalty: float,
+    random_shape_pool: list[str] | None = None,
+    random_path_length: str = "3",
 ) -> TransformedEnv:
     base = BatteryShapeFormationEnv(
         grid_size=grid_size,
@@ -79,6 +81,8 @@ def make_env(
         hover_battery_cost=hover_battery_cost,
         move_battery_cost=move_battery_cost,
         low_battery_move_penalty=low_battery_move_penalty,
+        random_shape_pool=random_shape_pool,
+        random_path_length=random_path_length,
     )
     env = PettingZooWrapper(
         env=base,
@@ -204,9 +208,41 @@ def main() -> None:
         ),
     )
 
+    # Per-episode random shape sequence (for generalization across arbitrary
+    # sequences at test time). When --random-shape-pool is set, --shapes is
+    # ignored for path construction; only the start (GROUND) is fixed and the
+    # rest of the path is sampled per reset.
+    parser.add_argument(
+        "--random-shape-pool",
+        type=str,
+        default="",
+        help=(
+            "Comma-separated pool of shape names to randomly sample target sequences "
+            "from each episode (e.g. 'A,B,C,D,E'). 'ALL_LETTERS' expands to A-Z. "
+            "Empty disables (uses --shapes deterministically)."
+        ),
+    )
+    parser.add_argument(
+        "--random-path-length",
+        type=str,
+        default="3",
+        help="Number of target shapes per episode. 'N' for fixed, 'lo-hi' for range.",
+    )
+
     parser.add_argument("--load-ckpt", type=str, default="")
     parser.add_argument("--tb-logdir", type=str, default="runs_comm20_battery")
     args = parser.parse_args()
+
+    # Resolve random shape pool.
+    if args.random_shape_pool:
+        if args.random_shape_pool.strip().upper() == "ALL_LETTERS":
+            random_shape_pool: list[str] | None = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        else:
+            random_shape_pool = [
+                s.strip() for s in args.random_shape_pool.split(",") if s.strip()
+            ]
+    else:
+        random_shape_pool = None
 
     device = torch.device(args.device)
     torch.manual_seed(args.seed)
@@ -233,6 +269,8 @@ def main() -> None:
         hover_battery_cost=args.hover_battery_cost,
         move_battery_cost=args.move_battery_cost,
         low_battery_move_penalty=args.low_battery_move_penalty,
+        random_shape_pool=random_shape_pool,
+        random_path_length=args.random_path_length,
     )
     env = make_env(**env_kwargs)
 
@@ -254,6 +292,8 @@ def main() -> None:
         hover_battery_cost=args.hover_battery_cost,
         move_battery_cost=args.move_battery_cost,
         low_battery_move_penalty=args.low_battery_move_penalty,
+        random_shape_pool=random_shape_pool,
+        random_path_length=args.random_path_length,
     )
     obs_dim = probe.obs_dim
     n_actions = 5

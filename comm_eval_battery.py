@@ -73,6 +73,7 @@ def make_env(
     seed, device, grid_size, n_agents, max_steps, shapes, comm_fail_prob,
     completion_reward, wind_prob, wind_strength, randomize_wind,
     initial_battery, hover_battery_cost, move_battery_cost, low_battery_move_penalty,
+    random_shape_pool=None, random_path_length="3",
 ):
     base = BatteryShapeFormationEnv(
         grid_size=grid_size,
@@ -89,6 +90,8 @@ def make_env(
         hover_battery_cost=hover_battery_cost,
         move_battery_cost=move_battery_cost,
         low_battery_move_penalty=low_battery_move_penalty,
+        random_shape_pool=random_shape_pool,
+        random_path_length=random_path_length,
     )
     env = PettingZooWrapper(
         env=base,
@@ -337,6 +340,26 @@ def main() -> None:
         default=BatteryShapeFormationEnv.DEFAULT_LOW_BATTERY_MOVE_PENALTY,
     )
 
+    # Random-sequence eval: each episode samples a fresh random target sequence
+    # from --random-shape-pool. Use to measure generalization across many unseen
+    # sequences instead of one fixed sequence.
+    parser.add_argument(
+        "--random-shape-pool",
+        type=str,
+        default="",
+        help=(
+            "Comma-separated shape pool for per-episode random sequence sampling "
+            "during eval (e.g. 'A,B,C,D'). 'ALL_LETTERS' = A-Z. Empty disables "
+            "(uses --shapes deterministically)."
+        ),
+    )
+    parser.add_argument(
+        "--random-path-length",
+        type=str,
+        default="3",
+        help="Targets per random episode. 'N' fixed, 'lo-hi' range.",
+    )
+
     parser.add_argument("--render", action="store_true")
     parser.add_argument("--render-delay", type=float, default=0.3)
     parser.add_argument("--save-gif", type=str, default=None)
@@ -347,6 +370,16 @@ def main() -> None:
     args = parser.parse_args()
 
     shapes = [shape.strip() for shape in args.shapes.split(",") if shape.strip()]
+
+    if args.random_shape_pool:
+        if args.random_shape_pool.strip().upper() == "ALL_LETTERS":
+            random_shape_pool: list[str] | None = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        else:
+            random_shape_pool = [
+                s.strip() for s in args.random_shape_pool.split(",") if s.strip()
+            ]
+    else:
+        random_shape_pool = None
 
     out_path = Path(args.out) if args.out else Path(f"eval_battery_{Path(args.ckpt).stem}.txt")
     if out_path.parent != Path(""):
@@ -374,6 +407,8 @@ def main() -> None:
             hover_battery_cost=args.hover_battery_cost,
             move_battery_cost=args.move_battery_cost,
             low_battery_move_penalty=args.low_battery_move_penalty,
+            random_shape_pool=random_shape_pool,
+            random_path_length=args.random_path_length,
         )
 
         env, base = make_env(seed=args.seed, **env_kwargs)
@@ -414,7 +449,7 @@ def main() -> None:
             f"low_move_penalty={args.low_battery_move_penalty}"
         )
         print(f"  Overall success rate   : {successes / len(runs):.1%}")
-        print(f"  Mean stages completed  : {np.mean([r['stages_completed'] for r in runs]):.2f} / {runs[0]['num_stages']}")
+        print(f"  Mean stages completed  : {np.mean([r['stages_completed'] for r in runs]):.2f}")
         print(f"  Mean final coverage    : {np.mean([r['coverage'] for r in runs]):.1%}")
         print(f"  Mean best coverage     : {np.mean([r['best_coverage'] for r in runs]):.1%}")
         print(f"  Overall mean reward    : {np.mean([r['total_reward'] for r in runs]):+.3f}")
@@ -423,6 +458,55 @@ def main() -> None:
         print(f"  Final battery mean     : {mean_batt * 100:.1f}%")
         print(f"  Final battery min      : {min_batt * 100:.1f}%")
         print(f"  Final battery std-dev  : {std_batt * 100:.1f}% (lower = more even drain)")
+
+        # ---- Random-pool generalization breakdown ------------------------
+        # If random pool was active, episodes saw different sequences. Break
+        # down success by sequence length and by individual letter.
+        if random_shape_pool is not None:
+            print()
+            print(f"  === Random-sequence generalization breakdown ===")
+            print(f"  Random pool             : {random_shape_pool}")
+            print(f"  Random path length      : {args.random_path_length}")
+            print(f"  Unique sequences seen   : {len(set(r['shapes'] for r in runs))} / {len(runs)} episodes")
+
+            # Per-length success
+            from collections import defaultdict
+            by_len: dict[int, list[bool]] = defaultdict(list)
+            for r in runs:
+                # number of targets = stages in path
+                n_tgt = r["num_stages"]
+                by_len[n_tgt].append(r["success"])
+            print(f"  Per-length success:")
+            for L in sorted(by_len.keys()):
+                s = by_len[L]
+                print(f"    length {L} ({len(s):>3d} eps): success {sum(s) / len(s):.1%}")
+
+            # Per-letter success: did episodes containing each letter succeed?
+            letter_success: dict[str, list[bool]] = defaultdict(list)
+            for r in runs:
+                # extract letters from shapes label, e.g. "GROUND->B->A->Y->C"
+                tokens = r["shapes"].split("->")[1:]  # drop GROUND
+                for tok in tokens:
+                    letter_success[tok].append(r["success"])
+            print(f"  Per-letter success rate (episodes containing the letter):")
+            for letter in sorted(letter_success.keys()):
+                s = letter_success[letter]
+                print(f"    {letter} ({len(s):>3d} eps): {sum(s) / len(s):.1%}")
+
+            # Per-sequence detail for top failure cases
+            seq_results: dict[str, list[dict]] = defaultdict(list)
+            for r in runs:
+                seq_results[r["shapes"]].append(r)
+            failed_seqs = [
+                (label, rs) for label, rs in seq_results.items()
+                if any(not r["success"] for r in rs)
+            ]
+            if failed_seqs:
+                print(f"  Sample failed sequences (first 5):")
+                for label, rs in failed_seqs[:5]:
+                    n_fail = sum(1 for r in rs if not r["success"])
+                    avg_cov = np.mean([r["coverage"] for r in rs])
+                    print(f"    {label}  failed {n_fail}/{len(rs)} times, mean coverage {avg_cov:.1%}")
 
         if args.render or args.save_gif:
             demo_env, demo_base = make_env(seed=args.seed + 1, **env_kwargs)
