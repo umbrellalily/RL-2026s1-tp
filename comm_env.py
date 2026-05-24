@@ -462,8 +462,12 @@ class BatteryShapeFormationEnv(ShapeFormationEnv):
         self.battery = {agent: self.initial_battery for agent in self.possible_agents}
         # Re-emit observations because parent's were built without battery slots.
         obs = self._all_obs()
-        for agent in self.possible_agents:
-            infos[agent]["battery"] = self.battery[agent]
+        # NOTE: do not write battery into ``infos`` — torchrl's PettingZooWrapper
+        # locks an info schema based on what's present at reset time, and then
+        # fails on any extra keys appearing at step time. The parent step adds
+        # several info keys (collision, shape_done, ...) that aren't in reset,
+        # so the only safe schema is the parent's empty one. Battery is already
+        # in the observation, so the policy can still see it.
         return obs, infos
 
     def step(self, actions: dict[str, int]):
@@ -489,8 +493,6 @@ class BatteryShapeFormationEnv(ShapeFormationEnv):
             # No extra penalty for staying.
             if act != 0 and self.low_battery_move_penalty != 0.0:
                 rewards[agent] -= self.low_battery_move_penalty * (1.0 - self.battery[agent])
-
-            infos[agent]["battery"] = self.battery[agent]
 
         obs = self._all_obs()
         return obs, rewards, terminations, truncations, infos
