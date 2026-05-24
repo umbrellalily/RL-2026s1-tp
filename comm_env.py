@@ -401,3 +401,111 @@ class ShapeFormationEnv(ParallelEnv):
         )
         print("\n".join("".join(row) for row in grid))
         print()
+
+
+class BatteryShapeFormationEnv(ShapeFormationEnv):
+    """Same as ShapeFormationEnv plus a per-drone battery state.
+
+    Goal of this variant: encourage the swarm to spread movement across drones
+    rather than letting a single drone do all the work. Each drone has a
+    battery level in [0, 1] that drains every step. Hovering (stay) drains by
+    ``hover_battery_cost`` and moving drains by ``move_battery_cost`` (the
+    latter is normally larger). Moving a drone with a low battery incurs an
+    extra penalty proportional to ``low_battery_move_penalty * (1 - battery)``,
+    so the policy is pushed to let depleted drones rest while fuller drones
+    move.
+
+    Observation appends:
+        own_battery (1) + others_battery (n_agents - 1, masked by comm_fail_prob)
+
+    All reward shaping from the parent class is preserved so the battery
+    variant only differs from the baseline by the new state, observation,
+    and the battery-weighted move penalty.
+    """
+
+    DEFAULT_INITIAL_BATTERY: float = 1.0
+    DEFAULT_HOVER_BATTERY_COST: float = 0.002
+    DEFAULT_MOVE_BATTERY_COST: float = 0.005
+    DEFAULT_LOW_BATTERY_MOVE_PENALTY: float = 0.1
+
+    metadata = {"name": "shape_transition_comm_battery_v0", "is_parallelizable": True}
+
+    def __init__(
+        self,
+        *args,
+        initial_battery: float = DEFAULT_INITIAL_BATTERY,
+        hover_battery_cost: float = DEFAULT_HOVER_BATTERY_COST,
+        move_battery_cost: float = DEFAULT_MOVE_BATTERY_COST,
+        low_battery_move_penalty: float = DEFAULT_LOW_BATTERY_MOVE_PENALTY,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        if not 0.0 < initial_battery <= 1.0:
+            raise ValueError("initial_battery must be in (0, 1]")
+        self.initial_battery = float(initial_battery)
+        self.hover_battery_cost = float(hover_battery_cost)
+        self.move_battery_cost = float(move_battery_cost)
+        self.low_battery_move_penalty = float(low_battery_move_penalty)
+
+        # Extend observation: + own_battery (1) + others_battery (n_agents - 1)
+        self.obs_dim = self.obs_dim + 1 + (self.n_agents - 1)
+        self._obs_space = spaces.Box(
+            low=0.0, high=1.0, shape=(self.obs_dim,), dtype=np.float32
+        )
+
+        self.battery: dict[str, float] = {
+            agent: self.initial_battery for agent in self.possible_agents
+        }
+
+    def reset(self, seed: int | None = None, options: dict | None = None):
+        obs, infos = super().reset(seed=seed, options=options)
+        self.battery = {agent: self.initial_battery for agent in self.possible_agents}
+        # Re-emit observations because parent's were built without battery slots.
+        obs = self._all_obs()
+        for agent in self.possible_agents:
+            infos[agent]["battery"] = self.battery[agent]
+        return obs, infos
+
+    def step(self, actions: dict[str, int]):
+        # Snapshot pre-step positions so we can detect actual movement after
+        # collision resolution (a drone that bumped into another stays put,
+        # so we drain hover cost, not move cost).
+        prev_pos = dict(self.agent_pos)
+
+        obs, rewards, terminations, truncations, infos = super().step(actions)
+
+        for agent in self.possible_agents:
+            act = int(actions[agent])
+            moved = self.agent_pos[agent] != prev_pos[agent]
+            # Drain: attempted move (action != 0) costs move_battery_cost even
+            # if a collision blocked the move; pure stay costs hover_battery_cost.
+            if act == 0 and not moved:
+                drain = self.hover_battery_cost
+            else:
+                drain = self.move_battery_cost
+            self.battery[agent] = max(0.0, self.battery[agent] - drain)
+
+            # Battery-weighted move penalty: as battery -> 0, moving costs more.
+            # No extra penalty for staying.
+            if act != 0 and self.low_battery_move_penalty != 0.0:
+                rewards[agent] -= self.low_battery_move_penalty * (1.0 - self.battery[agent])
+
+            infos[agent]["battery"] = self.battery[agent]
+
+        obs = self._all_obs()
+        return obs, rewards, terminations, truncations, infos
+
+    def _get_obs(self, agent: str) -> np.ndarray:
+        base_obs = super()._get_obs(agent)
+        own_batt = np.array([self.battery[agent]], dtype=np.float32)
+        comm_batt = np.zeros(self.n_agents - 1, dtype=np.float32)
+        i = 0
+        for other in self.possible_agents:
+            if other == agent:
+                continue
+            # Mirror the comm-fail mask used for positions so a lost packet
+            # also hides the sender's battery.
+            if self.np_random.random() >= self.comm_fail_prob:
+                comm_batt[i] = self.battery[other]
+            i += 1
+        return np.concatenate([base_obs, own_batt, comm_batt])
