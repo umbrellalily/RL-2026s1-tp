@@ -230,6 +230,17 @@ def main() -> None:
     )
 
     parser.add_argument("--load-ckpt", type=str, default="")
+    parser.add_argument(
+        "--start-iter",
+        type=int,
+        default=0,
+        help=(
+            "Offset added to the local iter counter when saving ckpts, printing logs, "
+            "and writing TensorBoard scalars. Use this to resume training in the same "
+            "folder with incrementing ckpt numbers (e.g. --start-iter 110 → next save is "
+            "ckpt_115.pt). Default 0 (no offset)."
+        ),
+    )
     parser.add_argument("--tb-logdir", type=str, default="runs_comm20_battery")
     args = parser.parse_args()
 
@@ -416,9 +427,10 @@ def main() -> None:
         mean_ep = finished_rewards.mean().item() if n_finished_entries > 0 else float("nan")
         success_rate = finished_terminated.float().mean().item() if n_finished_entries > 0 else float("nan")
         avg_loss = running_loss / max(1, n_updates)
-        frames_seen = (it + 1) * args.frames_per_batch
+        global_iter = args.start_iter + it + 1
+        frames_seen = global_iter * args.frames_per_batch
         print(
-            f"iter={it:4d}  frames={frames_seen:>8d}  "
+            f"iter={global_iter:4d}  frames={frames_seen:>8d}  "
             f"mean_ep_reward={mean_ep:+7.3f}  success={success_rate:5.1%}  "
             f"loss={avg_loss:7.4f}"
         )
@@ -432,7 +444,7 @@ def main() -> None:
         if (it + 1) % args.ckpt_every == 0:
             torch.save(
                 {"actor": actor.state_dict(), "critic": critic.state_dict()},
-                save_dir / f"ckpt_{it + 1}.pt",
+                save_dir / f"ckpt_{global_iter}.pt",
             )
 
     if writer is not None:
