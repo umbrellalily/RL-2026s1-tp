@@ -74,6 +74,7 @@ def make_env(
     completion_reward, wind_prob, wind_strength, randomize_wind,
     initial_battery, hover_battery_cost, move_battery_cost, low_battery_move_penalty,
     random_shape_pool=None, random_path_length="3",
+    randomize_comm_fail=False,
 ):
     base = BatteryShapeFormationEnv(
         grid_size=grid_size,
@@ -86,6 +87,7 @@ def make_env(
         wind_prob=wind_prob,
         wind_strength=wind_strength,
         randomize_wind=randomize_wind,
+        randomize_comm_fail=randomize_comm_fail,
         initial_battery=initial_battery,
         hover_battery_cost=hover_battery_cost,
         move_battery_cost=move_battery_cost,
@@ -321,6 +323,10 @@ def main() -> None:
     parser.add_argument("--wind-prob", type=float, default=0.0)
     parser.add_argument("--wind-strength", type=int, default=1)
     parser.add_argument("--randomize-wind", action="store_true")
+    parser.add_argument(
+        "--randomize-comm-fail", action="store_true",
+        help="Sample comm drop rate from [0, comm_fail_prob] each episode.",
+    )
     parser.add_argument("--completion-reward", type=float, default=30.0)
 
     parser.add_argument(
@@ -403,6 +409,7 @@ def main() -> None:
             wind_prob=args.wind_prob,
             wind_strength=args.wind_strength,
             randomize_wind=args.randomize_wind,
+            randomize_comm_fail=args.randomize_comm_fail,
             initial_battery=args.initial_battery,
             hover_battery_cost=args.hover_battery_cost,
             move_battery_cost=args.move_battery_cost,

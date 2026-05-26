@@ -56,6 +56,7 @@ def make_env(
     wind_prob: float,
     wind_strength: int,
     randomize_wind: bool,
+    randomize_comm_fail: bool,
     initial_battery: float,
     hover_battery_cost: float,
     move_battery_cost: float,
@@ -77,6 +78,7 @@ def make_env(
         wind_prob=wind_prob,
         wind_strength=wind_strength,
         randomize_wind=randomize_wind,
+        randomize_comm_fail=randomize_comm_fail,
         initial_battery=initial_battery,
         hover_battery_cost=hover_battery_cost,
         move_battery_cost=move_battery_cost,
@@ -178,6 +180,14 @@ def main() -> None:
     parser.add_argument("--wind-prob", type=float, default=0.0)
     parser.add_argument("--wind-strength", type=int, default=1)
     parser.add_argument("--randomize-wind", action="store_true")
+    parser.add_argument(
+        "--randomize-comm-fail",
+        action="store_true",
+        help=(
+            "Domain randomization for communication failure: each episode "
+            "samples its drop rate from [0, comm_fail_prob]."
+        ),
+    )
 
     # Battery-specific knobs (defaults match BatteryShapeFormationEnv defaults).
     parser.add_argument(
@@ -276,6 +286,7 @@ def main() -> None:
         wind_prob=args.wind_prob,
         wind_strength=args.wind_strength,
         randomize_wind=args.randomize_wind,
+        randomize_comm_fail=args.randomize_comm_fail,
         initial_battery=args.initial_battery,
         hover_battery_cost=args.hover_battery_cost,
         move_battery_cost=args.move_battery_cost,
@@ -299,6 +310,7 @@ def main() -> None:
         wind_prob=args.wind_prob,
         wind_strength=args.wind_strength,
         randomize_wind=args.randomize_wind,
+        randomize_comm_fail=args.randomize_comm_fail,
         initial_battery=args.initial_battery,
         hover_battery_cost=args.hover_battery_cost,
         move_battery_cost=args.move_battery_cost,

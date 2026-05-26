@@ -67,6 +67,7 @@ class ShapeFormationEnv(ParallelEnv):
         wind_strength: int = 1,
         wind_dir: tuple[int, int] | None = None,
         randomize_wind: bool = False,
+        randomize_comm_fail: bool = False,
         random_shape_pool: list[str] | None = None,
         random_path_length: int | tuple[int, int] | str = 3,
     ):
@@ -96,6 +97,17 @@ class ShapeFormationEnv(ParallelEnv):
         self.randomize_wind = randomize_wind
         self._cur_wind_prob: float = 0.0
         self._cur_wind_dir: tuple[int, int] = (0, 0)
+
+        # Communication-failure domain randomization. When randomize_comm_fail
+        # is True, each episode samples its drop rate from [0, comm_fail_prob];
+        # otherwise the env behaves exactly as before (cur == comm_fail_prob).
+        self.randomize_comm_fail = randomize_comm_fail
+        self._cur_comm_fail_prob: float = float(comm_fail_prob)
+
+        # Per-step symmetric link state: one Bernoulli per unordered drone pair
+        # decides whether the link is alive this step, so a dropped link hides
+        # traffic in both directions (radio reciprocity). Refilled in _all_obs.
+        self._cur_link_alive: dict[frozenset[str], bool] = {}
 
         # Backward-compatible naming: target_shapes is treated as the shapes path.
         if shapes is None and target_shapes is not None:
@@ -190,6 +202,16 @@ class ShapeFormationEnv(ParallelEnv):
         else:
             self._cur_wind_prob = 0.0
             self._cur_wind_dir = (0, 0)
+
+        # Sample this episode's communication failure rate. With
+        # randomize_comm_fail, drop rate is drawn from [0, comm_fail_prob];
+        # otherwise it is fixed to comm_fail_prob (original behaviour).
+        if self.comm_fail_prob > 0.0 and self.randomize_comm_fail:
+            self._cur_comm_fail_prob = float(
+                self.np_random.uniform(0.0, self.comm_fail_prob)
+            )
+        else:
+            self._cur_comm_fail_prob = float(self.comm_fail_prob)
 
         # If a random shape pool is configured, sample a fresh formation path
         # for this episode. Episode always starts at GROUND so the start cells
@@ -325,6 +347,7 @@ class ShapeFormationEnv(ParallelEnv):
                 "coverage": self.last_occupied_count / max(1, len(self.target_cells)),
                 "wind_prob": self._cur_wind_prob,
                 "wind_dir": self._cur_wind_dir,
+                "comm_fail_prob": self._cur_comm_fail_prob,
             }
             for agent in self.possible_agents
         }
@@ -401,7 +424,16 @@ class ShapeFormationEnv(ParallelEnv):
         }
 
     def _all_obs(self) -> dict[str, np.ndarray]:
-        return {agent: self._get_obs(agent) for agent in self.possible_agents}
+        # Draw this step's symmetric link mask once: one Bernoulli per unordered
+        # (a, b) pair, used for both (a -> b) and (b -> a) packet delivery.
+        agents = self.possible_agents
+        self._cur_link_alive = {}
+        for i, a in enumerate(agents):
+            for b in agents[i + 1:]:
+                self._cur_link_alive[frozenset({a, b})] = (
+                    self.np_random.random() >= self._cur_comm_fail_prob
+                )
+        return {agent: self._get_obs(agent) for agent in agents}
 
     def _get_obs(self, agent: str) -> np.ndarray:
         gs = float(self.grid_size)
@@ -419,7 +451,7 @@ class ShapeFormationEnv(ParallelEnv):
         for other in self.possible_agents:
             if other == agent:
                 continue
-            if self.np_random.random() >= self.comm_fail_prob:
+            if self._cur_link_alive.get(frozenset({agent, other}), True):
                 ro, co = self.agent_pos[other]
                 comm[3 * i] = ro / gs
                 comm[3 * i + 1] = co / gs
@@ -542,16 +574,35 @@ class BatteryShapeFormationEnv(ShapeFormationEnv):
         return obs, rewards, terminations, truncations, infos
 
     def _get_obs(self, agent: str) -> np.ndarray:
-        base_obs = super()._get_obs(agent)
-        own_batt = np.array([self.battery[agent]], dtype=np.float32)
+        gs = float(self.grid_size)
+        r, c = self.agent_pos[agent]
+        own = np.array([r / gs, c / gs], dtype=np.float32)
+
+        target_vec = np.empty(2 * self.n_agents, dtype=np.float32)
+        for i, (tr, tc) in enumerate(self.target_cells):
+            target_vec[2 * i] = tr / gs
+            target_vec[2 * i + 1] = tc / gs
+
+        # Same per-step symmetric link mask drives BOTH position and battery,
+        # so a dropped packet hides both fields together AND the drop is
+        # mirrored between (a -> b) and (b -> a).
+        comm = np.zeros(3 * (self.n_agents - 1), dtype=np.float32)
         comm_batt = np.zeros(self.n_agents - 1, dtype=np.float32)
         i = 0
         for other in self.possible_agents:
             if other == agent:
                 continue
-            # Mirror the comm-fail mask used for positions so a lost packet
-            # also hides the sender's battery.
-            if self.np_random.random() >= self.comm_fail_prob:
+            if self._cur_link_alive.get(frozenset({agent, other}), True):
+                ro, co = self.agent_pos[other]
+                comm[3 * i] = ro / gs
+                comm[3 * i + 1] = co / gs
+                comm[3 * i + 2] = 1.0
                 comm_batt[i] = self.battery[other]
             i += 1
-        return np.concatenate([base_obs, own_batt, comm_batt])
+
+        assigned_r, assigned_c = self.assigned_target_cell[agent]
+        assigned = np.array([assigned_r / gs, assigned_c / gs], dtype=np.float32)
+
+        own_batt = np.array([self.battery[agent]], dtype=np.float32)
+
+        return np.concatenate([own, target_vec, comm, assigned, own_batt, comm_batt])

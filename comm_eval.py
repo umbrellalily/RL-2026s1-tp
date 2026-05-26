@@ -69,7 +69,8 @@ def build_actor(obs_dim, n_actions, n_agents, hidden, device):
 
 
 def make_env(seed, device, grid_size, n_agents, max_steps, shapes, comm_fail_prob,
-             completion_reward=30.0, wind_prob=0.0, wind_strength=1, randomize_wind=False):
+             completion_reward=30.0, wind_prob=0.0, wind_strength=1, randomize_wind=False,
+             randomize_comm_fail=False):
     base = ShapeFormationEnv(
         grid_size=grid_size,
         n_agents=n_agents,
@@ -81,6 +82,7 @@ def make_env(seed, device, grid_size, n_agents, max_steps, shapes, comm_fail_pro
         wind_prob=wind_prob,
         wind_strength=wind_strength,
         randomize_wind=randomize_wind,
+        randomize_comm_fail=randomize_comm_fail,
     )
     env = PettingZooWrapper(
         env=base,
@@ -286,6 +288,10 @@ def main() -> None:
         help="Sample wind severity from [0, wind_prob] and a random direction each episode.",
     )
     parser.add_argument(
+        "--randomize-comm-fail", action="store_true",
+        help="Sample comm drop rate from [0, comm_fail_prob] each episode.",
+    )
+    parser.add_argument(
         "--completion-reward",
         type=float,
         default=30.0,
@@ -326,6 +332,7 @@ def main() -> None:
             wind_prob=args.wind_prob,
             wind_strength=args.wind_strength,
             randomize_wind=args.randomize_wind,
+            randomize_comm_fail=args.randomize_comm_fail,
         )
         actor = build_actor(base.obs_dim, 5, base.n_agents, args.hidden, device)
         with torch.no_grad():

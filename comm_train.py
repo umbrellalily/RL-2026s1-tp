@@ -51,6 +51,7 @@ def make_env(
     wind_prob: float = 0.0,
     wind_strength: int = 1,
     randomize_wind: bool = False,
+    randomize_comm_fail: bool = False,
 ) -> TransformedEnv:
     base = ShapeFormationEnv(
         grid_size=grid_size,
@@ -66,6 +67,7 @@ def make_env(
         wind_prob=wind_prob,
         wind_strength=wind_strength,
         randomize_wind=randomize_wind,
+        randomize_comm_fail=randomize_comm_fail,
     )
     env = PettingZooWrapper(
         env=base,
@@ -222,6 +224,15 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--randomize-comm-fail",
+        action="store_true",
+        help=(
+            "Domain randomization for communication failure: each episode "
+            "samples its drop rate from [0, comm_fail_prob]. Use to train a "
+            "policy robust across a range of comm loss conditions."
+        ),
+    )
+    parser.add_argument(
         "--load-ckpt",
         type=str,
         default="",
@@ -256,6 +267,7 @@ def main() -> None:
         wind_prob=args.wind_prob,
         wind_strength=args.wind_strength,
         randomize_wind=args.randomize_wind,
+        randomize_comm_fail=args.randomize_comm_fail,
     )
 
     probe = ShapeFormationEnv(
@@ -272,6 +284,7 @@ def main() -> None:
         wind_prob=args.wind_prob,
         wind_strength=args.wind_strength,
         randomize_wind=args.randomize_wind,
+        randomize_comm_fail=args.randomize_comm_fail,
     )
     obs_dim = probe.obs_dim
     n_actions = 5
