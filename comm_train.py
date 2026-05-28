@@ -366,10 +366,19 @@ def main() -> None:
     elif args.tb_logdir and SummaryWriter is None:
         print("tensorboard not installed; skipping TB logging (pip install tensorboard)")
 
+    # === Speed profiling: timing measurement for each iteration ===
+    t_total_start = time.time()
+    last_iter_end = t_total_start
+
     for it, data in enumerate(collector):
+        t_rollout = time.time() - last_iter_end
+
+        t0 = time.time()
         with torch.no_grad():
             gae(data)
+        t_gae = time.time() - t0
 
+        t0 = time.time()
         data_flat = data.reshape(-1)
         replay_buffer.empty()
         replay_buffer.extend(data_flat)
@@ -394,6 +403,7 @@ def main() -> None:
                 n_updates += 1
 
         collector.update_policy_weights_()
+        t_update = time.time() - t0
 
         ep_rew = data.get(("next", GROUP, "episode_reward"))
         done = data.get(("next", GROUP, "done"))
@@ -405,10 +415,12 @@ def main() -> None:
         success_rate = finished_terminated.float().mean().item() if n_finished_entries > 0 else float("nan")
         avg_loss = running_loss / max(1, n_updates)
         frames_seen = (it + 1) * args.frames_per_batch
+        t_iter = t_rollout + t_gae + t_update
         print(
             f"iter={it:4d}  frames={frames_seen:>8d}  "
             f"mean_ep_reward={mean_ep:+7.3f}  success={success_rate:5.1%}  "
-            f"loss={avg_loss:7.4f}"
+            f"loss={avg_loss:7.4f}  "
+            f"| iter={t_iter:.1f}s (rollout={t_rollout:.1f}s gae={t_gae:.2f}s update={t_update:.1f}s)"
         )
 
         if writer is not None:
@@ -422,6 +434,18 @@ def main() -> None:
                 {"actor": actor.state_dict(), "critic": critic.state_dict()},
                 save_dir / f"ckpt_{it + 1}.pt",
             )
+
+        last_iter_end = time.time()
+
+    total_time = time.time() - t_total_start
+    total_frames = (it + 1) * args.frames_per_batch
+    print(
+        f"\n=== Profiling summary ===\n"
+        f"Total time: {total_time:.1f}s\n"
+        f"Total frames: {total_frames}\n"
+        f"FPS: {total_frames/total_time:.0f} frames/sec\n"
+        f"1-hour throughput estimate: {total_frames/total_time*3600:.0f} frames/hour"
+    )
 
     if writer is not None:
         writer.close()
