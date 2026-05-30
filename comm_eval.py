@@ -95,19 +95,38 @@ def make_env(seed, device, grid_size, n_agents, max_steps, shapes, comm_fail_pro
     return env, base
 
 
-def _snapshot_frame(base):
+def _target_snapshot(base):
+    """Capture the formation the drones are *currently* forming.
+
+    Must be read BEFORE ``env.step()``. A step that completes a letter advances
+    the stage in-place (``comm_env`` sets ``target_cells`` to the next letter
+    within the same step), so reading targets after the step makes a just-
+    completed formation render with its LEDs OFF -- the drones sit on the old
+    letter while ``target_cells`` already points at the next one.
+    """
     return {
-        "positions": dict(base.agent_pos),
         "target_cells": list(base.target_cells),
         "target_shape": base.target_shape_name,
         "stage_idx": base.stage_idx,
         "num_stages": len(base.formation_path.targets),
-        "stages_completed": base.stage_done_count,
-        "occupied_count": getattr(base, "last_occupied_count", 0),
-        "best_occupied_count": getattr(base, "best_occupied_count", 0),
         "target_count": len(base.target_cells),
-        "coverage": getattr(base, "last_occupied_count", 0) / max(1, len(base.target_cells)),
         "shapes_path": base.formation_path.label,
+    }
+
+
+def _snapshot_frame(base, target=None):
+    # ``target`` is the pre-step formation (see _target_snapshot). When omitted
+    # (e.g. the initial reset frame) the env's current target is correct.
+    if target is None:
+        target = _target_snapshot(base)
+    occupied = getattr(base, "last_occupied_count", 0)
+    return {
+        "positions": dict(base.agent_pos),
+        "stages_completed": base.stage_done_count,
+        "occupied_count": occupied,
+        "best_occupied_count": getattr(base, "best_occupied_count", 0),
+        "coverage": occupied / max(1, target["target_count"]),
+        **target,
     }
 
 
@@ -120,13 +139,17 @@ def rollout(env, base, actor, exploration, max_steps, record=False):
     success = False
 
     for _ in range(max_steps):
+        # Snapshot the formation being formed BEFORE stepping; env.step() may
+        # complete the letter and advance the stage in-place, which would
+        # otherwise leave the completed letter's drones rendered as LED-off.
+        active_target = _target_snapshot(base) if record else None
         with set_exploration_type(exploration), torch.no_grad():
             actor(td)
         td = env.step(td)
         steps += 1
         collisions += base.last_collision_count
         if record:
-            history.append(_snapshot_frame(base))
+            history.append(_snapshot_frame(base, target=active_target))
         total_reward += float(td.get(("next", GROUP, "reward")).mean().item())
 
         if bool(td.get(("next", GROUP, "done")).all().item()):

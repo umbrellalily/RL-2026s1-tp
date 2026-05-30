@@ -1,19 +1,27 @@
-"""Evaluate a battery-aware MAPPO policy and render a GIF that shows each
-drone's battery level at every frame.
+"""Strict-termination evaluation of a battery-aware MAPPO policy.
 
-This mirrors comm_eval.py but uses BatteryShapeFormationEnv so observations
-include battery state and the GIF visualisation overlays a per-drone battery
-bar at each step.
+This mirrors comm_eval_battery.py but enforces hard failure conditions: the
+episode ends *immediately* the moment
+
+  * any collision occurs (two drones contend for the same cell or try to swap),
+    or
+  * any drone's battery reaches 0,
+
+and that episode is recorded as a failure (unless the final formation was
+completed on the very same step, which still counts as a success). This is the
+"no crashes allowed" evaluation regime -- it measures whether the policy can
+finish the formation path without ever bumping a drone or running one flat.
 
 Examples:
-    python comm_eval_battery.py --ckpt checkpoints_comm20_battery/ckpt_60.pt \\
-        --shapes GROUND,X --greedy --save-gif demo_battery.gif
+    python comm_eval_strict.py --ckpt checkpoints_comm20_battery/ckpt_60.pt \\
+        --shapes GROUND,X --greedy --save-gif demo_strict.gif
 """
 from __future__ import annotations
 
 import argparse
 import sys
 import time
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +36,9 @@ from comm_env import BatteryShapeFormationEnv
 from formation_seq import available_shape_names
 
 GROUP = "drone"
+
+# End-of-episode reasons, in the order they are reported.
+END_REASONS = ("success", "collision", "battery_depleted", "timeout")
 
 
 class _Tee:
@@ -149,6 +160,8 @@ def rollout(env, base, actor, exploration, max_steps, record=False):
     steps = 0
     collisions = 0
     success = False
+    # Default: the episode ran out of steps without crashing or finishing.
+    end_reason = "timeout"
 
     for _ in range(max_steps):
         # Snapshot the formation being formed BEFORE stepping; env.step() may
@@ -164,13 +177,33 @@ def rollout(env, base, actor, exploration, max_steps, record=False):
             history.append(_snapshot_frame(base, target=active_target))
         total_reward += float(td.get(("next", GROUP, "reward")).mean().item())
 
-        if bool(td.get(("next", GROUP, "done")).all().item()):
-            success = bool(td.get(("next", GROUP, "terminated")).any().item())
+        done = bool(td.get(("next", GROUP, "done")).all().item())
+        terminated = bool(td.get(("next", GROUP, "terminated")).any().item())
+        min_battery = min(base.battery.values())
+
+        # Strict termination order:
+        #   1. Final formation completed this step -> success (wins ties).
+        #   2. Any collision this step             -> crash failure.
+        #   3. Any drone fully drained             -> crash failure.
+        #   4. Env truncated (max steps)           -> timeout failure.
+        if done and terminated:
+            success = True
+            end_reason = "success"
+            break
+        if base.last_collision_count > 0:
+            end_reason = "collision"
+            break
+        if min_battery <= 0.0:
+            end_reason = "battery_depleted"
+            break
+        if done:
+            end_reason = "timeout"
             break
         td = step_mdp(td)
 
     return {
         "success": success,
+        "end_reason": end_reason,
         "total_reward": total_reward,
         "steps": steps,
         "collisions": collisions,
@@ -184,6 +217,7 @@ def rollout(env, base, actor, exploration, max_steps, record=False):
         "coverage": getattr(base, "last_occupied_count", 0) / max(1, len(base.target_cells)),
         "best_coverage": getattr(base, "best_occupied_count", 0) / max(1, len(base.target_cells)),
         "final_batteries": dict(base.battery),
+        "min_battery": min(base.battery.values()),
         "history": history,
     }
 
@@ -192,13 +226,11 @@ def _battery_color(level: float) -> str:
     """Green (full) -> yellow (mid) -> red (low)."""
     level = max(0.0, min(1.0, float(level)))
     if level > 0.5:
-        # green -> yellow as it falls from 1.0 to 0.5
-        t = (1.0 - level) / 0.5  # 0..1
+        t = (1.0 - level) / 0.5
         r = int(255 * t)
         g = 220
         b = 60
     else:
-        # yellow -> red as it falls from 0.5 to 0.0
         t = (0.5 - level) / 0.5
         r = 255
         g = int(220 * (1.0 - t))
@@ -207,13 +239,7 @@ def _battery_color(level: float) -> str:
 
 
 def save_gif(grid_size: int, history, path: Path, fps: int = 4) -> None:
-    """Render a battery-aware GIF.
-
-    On top of the LED on/off visualisation, each drone gets a small horizontal
-    battery bar above its dot. The bar fill width is proportional to the
-    battery level and colour-coded green -> yellow -> red. A numeric percent
-    is printed next to each drone for the exact value.
-    """
+    """Render a battery-aware GIF with a per-drone battery bar at each step."""
     import matplotlib.patches as patches
     import matplotlib.pyplot as plt
     from matplotlib.animation import FuncAnimation, PillowWriter
@@ -273,10 +299,9 @@ def save_gif(grid_size: int, history, path: Path, fps: int = 4) -> None:
                 facecolor="#1c1c2e", edgecolor="#3a3a55",
                 linewidth=0.6, linestyle=(0, (2, 2)),
             ))
-        # Bar geometry (in data units, i.e. grid cells).
         bar_w = 0.9
         bar_h = 0.16
-        bar_y_offset = 0.55  # bar sits this far above the drone centre
+        bar_y_offset = 0.55
         for agent, (r, c) in frame["positions"].items():
             led_on = (r, c) in target_set
             if led_on:
@@ -296,23 +321,19 @@ def save_gif(grid_size: int, history, path: Path, fps: int = 4) -> None:
                     linewidth=0.5, alpha=0.85,
                 ))
 
-            # Battery bar above the drone.
             batt = float(batteries.get(agent, 0.0)) if batteries else 0.0
             bar_x = c - bar_w / 2.0
             bar_y = r - bar_y_offset - bar_h
-            # Background
             ax.add_patch(patches.Rectangle(
                 (bar_x, bar_y), bar_w, bar_h,
                 facecolor=BAR_BG, edgecolor=BAR_EDGE, linewidth=0.4,
             ))
-            # Fill
             fill_w = bar_w * max(0.0, min(1.0, batt))
             if fill_w > 0:
                 ax.add_patch(patches.Rectangle(
                     (bar_x, bar_y), fill_w, bar_h,
                     facecolor=_battery_color(batt), edgecolor="none",
                 ))
-            # Percentage label to the right of the bar.
             ax.text(
                 c + bar_w / 2.0 + 0.05, bar_y + bar_h / 2.0,
                 f"{batt * 100:.0f}%",
@@ -369,9 +390,6 @@ def main() -> None:
         default=BatteryShapeFormationEnv.DEFAULT_LOW_BATTERY_MOVE_PENALTY,
     )
 
-    # Random-sequence eval: each episode samples a fresh random target sequence
-    # from --random-shape-pool. Use to measure generalization across many unseen
-    # sequences instead of one fixed sequence.
     parser.add_argument(
         "--random-shape-pool",
         type=str,
@@ -394,7 +412,7 @@ def main() -> None:
     parser.add_argument("--save-gif", type=str, default=None)
     parser.add_argument(
         "--out", type=str, default="",
-        help="Path to save eval output text (default: eval_battery_<ckpt_stem>.txt)",
+        help="Path to save eval output text (default: eval_strict_<ckpt_stem>.txt)",
     )
     args = parser.parse_args()
 
@@ -410,7 +428,7 @@ def main() -> None:
     else:
         random_shape_pool = None
 
-    out_path = Path(args.out) if args.out else Path(f"eval_battery_{Path(args.ckpt).stem}.txt")
+    out_path = Path(args.out) if args.out else Path(f"eval_strict_{Path(args.ckpt).stem}.txt")
     if out_path.parent != Path(""):
         out_path.parent.mkdir(parents=True, exist_ok=True)
     eval_log = open(out_path, "w", encoding="utf-8")
@@ -456,7 +474,7 @@ def main() -> None:
             runs.append(rollout(env, base, actor, exploration, max_steps=base.max_steps))
 
         successes = sum(run["success"] for run in runs)
-        # Battery summary across episodes: how evenly batteries were drained.
+        reasons = Counter(r["end_reason"] for r in runs)
         mean_batt = np.mean(
             [np.mean(list(r["final_batteries"].values())) for r in runs]
         )
@@ -467,10 +485,11 @@ def main() -> None:
             [np.min(list(r["final_batteries"].values())) for r in runs]
         )
         print(
-            f"=== Battery-aware eval over {args.n_episodes} episodes "
+            f"=== Strict-termination eval over {args.n_episodes} episodes "
             f"({'greedy' if args.greedy else 'stochastic'}, "
             f"comm_fail_prob={args.comm_fail_prob}, wind_prob={args.wind_prob}) ==="
         )
+        print("  (episode ends immediately on any collision or a drained battery)")
         print(f"  Grid / agents          : {args.grid_size}x{args.grid_size}, n_agents={args.n_agents}")
         print(f"  Shapes path            : {base.formation_path.label}")
         print(
@@ -479,6 +498,10 @@ def main() -> None:
             f"low_move_penalty={args.low_battery_move_penalty}"
         )
         print(f"  Overall success rate   : {successes / len(runs):.1%}")
+        print("  End reasons:")
+        for reason in END_REASONS:
+            cnt = reasons.get(reason, 0)
+            print(f"    {reason:<16}: {cnt:>4d} ({cnt / len(runs):.1%})")
         print(f"  Mean stages completed  : {np.mean([r['stages_completed'] for r in runs]):.2f}")
         print(f"  Mean final coverage    : {np.mean([r['coverage'] for r in runs]):.1%}")
         print(f"  Mean best coverage     : {np.mean([r['best_coverage'] for r in runs]):.1%}")
@@ -490,40 +513,32 @@ def main() -> None:
         print(f"  Final battery std-dev  : {std_batt * 100:.1f}% (lower = more even drain)")
 
         # ---- Random-pool generalization breakdown ------------------------
-        # If random pool was active, episodes saw different sequences. Break
-        # down success by sequence length and by individual letter.
         if random_shape_pool is not None:
             print()
-            print(f"  === Random-sequence generalization breakdown ===")
+            print("  === Random-sequence generalization breakdown ===")
             print(f"  Random pool             : {random_shape_pool}")
             print(f"  Random path length      : {args.random_path_length}")
             print(f"  Unique sequences seen   : {len(set(r['shapes'] for r in runs))} / {len(runs)} episodes")
 
-            # Per-length success
-            from collections import defaultdict
             by_len: dict[int, list[bool]] = defaultdict(list)
             for r in runs:
-                # number of targets = stages in path
                 n_tgt = r["num_stages"]
                 by_len[n_tgt].append(r["success"])
-            print(f"  Per-length success:")
+            print("  Per-length success:")
             for L in sorted(by_len.keys()):
                 s = by_len[L]
                 print(f"    length {L} ({len(s):>3d} eps): success {sum(s) / len(s):.1%}")
 
-            # Per-letter success: did episodes containing each letter succeed?
             letter_success: dict[str, list[bool]] = defaultdict(list)
             for r in runs:
-                # extract letters from shapes label, e.g. "GROUND->B->A->Y->C"
-                tokens = r["shapes"].split("->")[1:]  # drop GROUND
+                tokens = r["shapes"].split("->")[1:]
                 for tok in tokens:
                     letter_success[tok].append(r["success"])
-            print(f"  Per-letter success rate (episodes containing the letter):")
+            print("  Per-letter success rate (episodes containing the letter):")
             for letter in sorted(letter_success.keys()):
                 s = letter_success[letter]
                 print(f"    {letter} ({len(s):>3d} eps): {sum(s) / len(s):.1%}")
 
-            # Per-sequence detail for top failure cases
             seq_results: dict[str, list[dict]] = defaultdict(list)
             for r in runs:
                 seq_results[r["shapes"]].append(r)
@@ -532,7 +547,7 @@ def main() -> None:
                 if any(not r["success"] for r in rs)
             ]
             if failed_seqs:
-                print(f"  Sample failed sequences (first 5):")
+                print("  Sample failed sequences (first 5):")
                 for label, rs in failed_seqs[:5]:
                     n_fail = sum(1 for r in rs if not r["success"])
                     avg_cov = np.mean([r["coverage"] for r in rs])
@@ -546,10 +561,12 @@ def main() -> None:
             )
             print(
                 f"\n=== Demo episode: shapes='{demo['shapes']}', "
-                f"success={demo['success']}, stages={demo['stages_completed']}/{demo['num_stages']}, "
+                f"end_reason={demo['end_reason']}, success={demo['success']}, "
+                f"stages={demo['stages_completed']}/{demo['num_stages']}, "
                 f"coverage={demo['occupied_count']}/{demo['target_count']} "
                 f"best={demo['best_occupied_count']}/{demo['target_count']}, "
-                f"reward={demo['total_reward']:+.2f}, steps={demo['steps']} ==="
+                f"reward={demo['total_reward']:+.2f}, steps={demo['steps']}, "
+                f"min_batt={demo['min_battery'] * 100:.1f}% ==="
             )
             if args.render:
                 for step, frame in enumerate(demo["history"]):
