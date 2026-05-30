@@ -63,7 +63,7 @@ def make_env(
     low_battery_move_penalty: float,
     random_shape_pool: list[str] | None = None,
     random_path_length: str = "3",
-) -> TransformedEnv:
+) -> tuple[TransformedEnv, BatteryShapeFormationEnv]:
     base = BatteryShapeFormationEnv(
         grid_size=grid_size,
         n_agents=n_agents,
@@ -98,7 +98,10 @@ def make_env(
         env,
         RewardSum(in_keys=[(GROUP, "reward")], out_keys=[(GROUP, "episode_reward")]),
     )
-    return env
+    # Return the unwrapped base env too: SyncDataCollector steps this exact
+    # object, so mutating base.collision_penalty mid-training (collision-penalty
+    # curriculum) takes effect on the next collected batch.
+    return env, base
 
 
 def build_models(obs_dim, n_actions, n_agents, hidden, device):
@@ -171,6 +174,42 @@ def main() -> None:
     parser.add_argument("--assigned-target-reward", type=float, default=0.3)
     parser.add_argument("--coverage-delta-reward", type=float, default=0.2)
     parser.add_argument("--hover-penalty", type=float, default=0.02)
+    parser.add_argument(
+        "--collision-penalty",
+        type=float,
+        default=0.2,
+        help=(
+            "Per-drone penalty on a collision. Used as a constant unless the "
+            "collision-penalty curriculum (--collision-penalty-start/-end) is set."
+        ),
+    )
+    parser.add_argument(
+        "--collision-penalty-start",
+        type=float,
+        default=None,
+        help=(
+            "Curriculum: initial (low) collision penalty so early exploration is "
+            "not punished into a frozen policy. Defaults to --collision-penalty."
+        ),
+    )
+    parser.add_argument(
+        "--collision-penalty-end",
+        type=float,
+        default=None,
+        help=(
+            "Curriculum: final (high) collision penalty, reached as success rate "
+            "climbs. Defaults to --collision-penalty."
+        ),
+    )
+    parser.add_argument(
+        "--collision-penalty-ema",
+        type=float,
+        default=0.1,
+        help=(
+            "EMA smoothing factor for the success-rate signal that drives the "
+            "collision-penalty curriculum. Higher = faster, noisier ramp."
+        ),
+    )
     parser.add_argument(
         "--shapes",
         type=str,
@@ -294,7 +333,18 @@ def main() -> None:
         random_shape_pool=random_shape_pool,
         random_path_length=args.random_path_length,
     )
-    env = make_env(**env_kwargs)
+    env, base_env = make_env(**env_kwargs)
+
+    # Collision-penalty curriculum. Both bounds default to --collision-penalty,
+    # so without --collision-penalty-start/-end the penalty is a fixed constant
+    # (backward compatible). When set, the penalty ramps from start -> end as a
+    # ratcheted EMA of the success rate climbs: a frozen policy has success ~0,
+    # so the penalty stays low and movement can be learned before collisions are
+    # punished hard. The ratchet keeps the penalty non-decreasing.
+    cp_start = args.collision_penalty if args.collision_penalty_start is None else args.collision_penalty_start
+    cp_end = args.collision_penalty if args.collision_penalty_end is None else args.collision_penalty_end
+    cp_curriculum = cp_start != cp_end
+    base_env.collision_penalty = cp_start
 
     probe = BatteryShapeFormationEnv(
         grid_size=args.grid_size,
@@ -337,6 +387,13 @@ def main() -> None:
             f"Wind: prob={args.wind_prob}, strength={args.wind_strength}, "
             f"randomize={args.randomize_wind}"
         )
+    if cp_curriculum:
+        print(
+            f"Collision-penalty curriculum: {cp_start:.3f} -> {cp_end:.3f} "
+            f"(success-driven, ema={args.collision_penalty_ema})"
+        )
+    else:
+        print(f"Collision penalty: {cp_start:.3f} (constant)")
 
     actor, critic = build_models(obs_dim, n_actions, n_agents, args.hidden, device)
 
@@ -401,6 +458,10 @@ def main() -> None:
     elif args.tb_logdir and SummaryWriter is None:
         print("tensorboard not installed; skipping TB logging (pip install tensorboard)")
 
+    # Collision-penalty curriculum state: ratcheted EMA of the success rate.
+    cp_success_ema = 0.0
+    cp_progress = 0.0
+
     for it, data in enumerate(collector):
         with torch.no_grad():
             gae(data)
@@ -441,10 +502,23 @@ def main() -> None:
         avg_loss = running_loss / max(1, n_updates)
         global_iter = args.start_iter + it + 1
         frames_seen = global_iter * args.frames_per_batch
+
+        # Update the collision-penalty curriculum from this batch's success rate.
+        # Only step the EMA when episodes actually finished (otherwise success is
+        # nan). cp_progress ratchets up so the penalty never relaxes.
+        if cp_curriculum and n_finished_entries > 0:
+            cp_success_ema = (
+                (1.0 - args.collision_penalty_ema) * cp_success_ema
+                + args.collision_penalty_ema * success_rate
+            )
+            cp_progress = max(cp_progress, cp_success_ema)
+            base_env.collision_penalty = cp_start + (cp_end - cp_start) * min(1.0, max(0.0, cp_progress))
+
+        cp_str = f"  coll_pen={base_env.collision_penalty:.3f}" if cp_curriculum else ""
         print(
             f"iter={global_iter:4d}  frames={frames_seen:>8d}  "
             f"mean_ep_reward={mean_ep:+7.3f}  success={success_rate:5.1%}  "
-            f"loss={avg_loss:7.4f}"
+            f"loss={avg_loss:7.4f}{cp_str}"
         )
 
         if writer is not None:
@@ -452,6 +526,7 @@ def main() -> None:
                 writer.add_scalar("train/mean_episode_reward", mean_ep, frames_seen)
                 writer.add_scalar("train/success_rate", success_rate, frames_seen)
             writer.add_scalar("train/loss_total", avg_loss, frames_seen)
+            writer.add_scalar("train/collision_penalty", base_env.collision_penalty, frames_seen)
 
         if (it + 1) % args.ckpt_every == 0:
             torch.save(
