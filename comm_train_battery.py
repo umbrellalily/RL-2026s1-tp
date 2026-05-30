@@ -170,6 +170,32 @@ def main() -> None:
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--save-dir", type=str, default="checkpoints_comm20_battery")
     parser.add_argument("--ckpt-every", type=int, default=10)
+    parser.add_argument(
+        "--early-stop-success",
+        type=float,
+        default=0.0,
+        help=(
+            "Stop training once the batch success rate reaches this fraction "
+            "(e.g. 1.0 = 100%%) for --early-stop-patience consecutive iters; the "
+            "current ckpt is saved and the run exits early. 0 disables."
+        ),
+    )
+    parser.add_argument(
+        "--early-stop-patience",
+        type=int,
+        default=3,
+        help="Consecutive iters at/above --early-stop-success required to stop.",
+    )
+    parser.add_argument(
+        "--save-best-above",
+        type=float,
+        default=0.0,
+        help=(
+            "Whenever the batch success rate is >= this fraction AND beats the best "
+            "seen so far, save that ckpt off the ckpt-every grid (replacing the "
+            "previous off-grid best). 0 disables. Keeps the best high-success model."
+        ),
+    )
     parser.add_argument("--comm-fail-prob", type=float, default=0.0)
     parser.add_argument("--shaping-coef", type=float, default=0.3)
     parser.add_argument("--completion-reward", type=float, default=30.0)
@@ -482,6 +508,9 @@ def main() -> None:
     # Collision-penalty curriculum state: ratcheted EMA of the success rate.
     cp_success_ema = 0.0
     cp_progress = 0.0
+    es_hits = 0  # consecutive iters meeting the early-stop success threshold
+    best_success = -1.0          # best batch success rate seen (for --save-best-above)
+    best_offsched_path = None    # last off-grid "best" ckpt saved (to replace it)
 
     for it, data in enumerate(collector):
         with torch.no_grad():
@@ -549,11 +578,35 @@ def main() -> None:
             writer.add_scalar("train/loss_total", avg_loss, frames_seen)
             writer.add_scalar("train/collision_penalty", base_env.collision_penalty, frames_seen)
 
+        ckpt_path = save_dir / f"ckpt_{global_iter}.pt"
         if (it + 1) % args.ckpt_every == 0:
-            torch.save(
-                {"actor": actor.state_dict(), "critic": critic.state_dict()},
-                save_dir / f"ckpt_{global_iter}.pt",
-            )
+            torch.save({"actor": actor.state_dict(), "critic": critic.state_dict()}, ckpt_path)
+
+        # Off-schedule "best" save: success clears --save-best-above AND beats the
+        # previous best -> keep that ckpt, replacing the previous off-grid best.
+        if (args.save_best_above > 0 and n_finished_entries > 0
+                and success_rate >= args.save_best_above and success_rate > best_success):
+            best_success = success_rate
+            if not ckpt_path.exists():
+                torch.save({"actor": actor.state_dict(), "critic": critic.state_dict()}, ckpt_path)
+                if (best_offsched_path is not None and best_offsched_path != ckpt_path
+                        and best_offsched_path.exists()):
+                    best_offsched_path.unlink()
+                best_offsched_path = ckpt_path
+            print(f"[best] success {success_rate:.1%} (>= {args.save_best_above:.0%}) -> kept {ckpt_path.name}")
+
+        # Early stop: success rate at/above threshold for `patience` iters in a row.
+        if args.early_stop_success > 0 and n_finished_entries > 0 and success_rate >= args.early_stop_success:
+            es_hits += 1
+            if es_hits >= args.early_stop_patience:
+                torch.save({"actor": actor.state_dict(), "critic": critic.state_dict()}, ckpt_path)
+                print(
+                    f"[early-stop] success {success_rate:.1%} >= {args.early_stop_success:.0%} "
+                    f"for {es_hits} iters -> saved {ckpt_path.name}, stopping."
+                )
+                break
+        else:
+            es_hits = 0
 
     if writer is not None:
         writer.close()

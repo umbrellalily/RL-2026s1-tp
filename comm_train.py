@@ -160,6 +160,32 @@ def main() -> None:
     parser.add_argument("--save-dir", type=str, default="checkpoints_comm20")
     parser.add_argument("--ckpt-every", type=int, default=10)
     parser.add_argument(
+        "--early-stop-success",
+        type=float,
+        default=0.0,
+        help=(
+            "Stop training once the batch success rate reaches this fraction "
+            "(e.g. 1.0 = 100%%) for --early-stop-patience consecutive iters; the "
+            "current ckpt is saved and the run exits early. 0 disables."
+        ),
+    )
+    parser.add_argument(
+        "--early-stop-patience",
+        type=int,
+        default=3,
+        help="Consecutive iters at/above --early-stop-success required to stop.",
+    )
+    parser.add_argument(
+        "--save-best-above",
+        type=float,
+        default=0.0,
+        help=(
+            "Whenever the batch success rate is >= this fraction AND beats the best "
+            "seen so far, save that ckpt off the ckpt-every grid (replacing the "
+            "previous off-grid best). 0 disables. Keeps the best high-success model."
+        ),
+    )
+    parser.add_argument(
         "--comm-fail-prob",
         type=float,
         default=0.0,
@@ -290,6 +316,16 @@ def main() -> None:
         type=str,
         default="",
         help="Path to a previous checkpoint to warm-start from.",
+    )
+    parser.add_argument(
+        "--start-iter",
+        type=int,
+        default=0,
+        help=(
+            "Iteration offset for ckpt numbering when resuming. Saved files become "
+            "ckpt_{start-iter + it + 1}.pt so a continued run keeps incrementing in the "
+            "same folder (e.g. --start-iter 110 -> next save ckpt_115.pt). Default 0."
+        ),
     )
     parser.add_argument(
         "--tb-logdir",
@@ -444,6 +480,9 @@ def main() -> None:
     # Collision-penalty curriculum state: ratcheted EMA of the success rate.
     cp_success_ema = 0.0
     cp_progress = 0.0
+    es_hits = 0  # consecutive iters meeting the early-stop success threshold
+    best_success = -1.0          # best batch success rate seen (for --save-best-above)
+    best_offsched_path = None    # last off-grid "best" ckpt saved (to replace it)
 
     # === Speed profiling: timing measurement for each iteration ===
     t_total_start = time.time()
@@ -493,7 +532,10 @@ def main() -> None:
         mean_ep = finished_rewards.mean().item() if n_finished_entries > 0 else float("nan")
         success_rate = finished_terminated.float().mean().item() if n_finished_entries > 0 else float("nan")
         avg_loss = running_loss / max(1, n_updates)
-        frames_seen = (it + 1) * args.frames_per_batch
+        # Continue iter / frames numbering across resumes (--start-iter offset)
+        # so a resumed run's logs and ckpt numbers pick up where it left off.
+        global_iter = args.start_iter + it + 1
+        frames_seen = global_iter * args.frames_per_batch
 
         # Update the collision-penalty curriculum from this batch's success rate.
         # Only step the EMA when episodes actually finished (otherwise success is
@@ -508,7 +550,7 @@ def main() -> None:
         t_iter = t_rollout + t_gae + t_update
         cp_str = f"  coll_pen={base_env.collision_penalty:.3f}" if cp_curriculum else ""
         print(
-            f"iter={it:4d}  frames={frames_seen:>8d}  "
+            f"iter={global_iter:4d}  frames={frames_seen:>8d}  "
             f"mean_ep_reward={mean_ep:+7.3f}  success={success_rate:5.1%}  "
             f"loss={avg_loss:7.4f}{cp_str}  "
             f"| iter={t_iter:.1f}s (rollout={t_rollout:.1f}s gae={t_gae:.2f}s update={t_update:.1f}s)"
@@ -521,11 +563,35 @@ def main() -> None:
             writer.add_scalar("train/loss_total", avg_loss, frames_seen)
             writer.add_scalar("train/collision_penalty", base_env.collision_penalty, frames_seen)
 
+        ckpt_path = save_dir / f"ckpt_{global_iter}.pt"
         if (it + 1) % args.ckpt_every == 0:
-            torch.save(
-                {"actor": actor.state_dict(), "critic": critic.state_dict()},
-                save_dir / f"ckpt_{it + 1}.pt",
-            )
+            torch.save({"actor": actor.state_dict(), "critic": critic.state_dict()}, ckpt_path)
+
+        # Off-schedule "best" save: success clears --save-best-above AND beats the
+        # previous best -> keep that ckpt, replacing the previous off-grid best.
+        if (args.save_best_above > 0 and n_finished_entries > 0
+                and success_rate >= args.save_best_above and success_rate > best_success):
+            best_success = success_rate
+            if not ckpt_path.exists():
+                torch.save({"actor": actor.state_dict(), "critic": critic.state_dict()}, ckpt_path)
+                if (best_offsched_path is not None and best_offsched_path != ckpt_path
+                        and best_offsched_path.exists()):
+                    best_offsched_path.unlink()
+                best_offsched_path = ckpt_path
+            print(f"[best] success {success_rate:.1%} (>= {args.save_best_above:.0%}) -> kept {ckpt_path.name}")
+
+        # Early stop: success rate at/above threshold for `patience` iters in a row.
+        if args.early_stop_success > 0 and n_finished_entries > 0 and success_rate >= args.early_stop_success:
+            es_hits += 1
+            if es_hits >= args.early_stop_patience:
+                torch.save({"actor": actor.state_dict(), "critic": critic.state_dict()}, ckpt_path)
+                print(
+                    f"[early-stop] success {success_rate:.1%} >= {args.early_stop_success:.0%} "
+                    f"for {es_hits} iters -> saved {ckpt_path.name}, stopping."
+                )
+                break
+        else:
+            es_hits = 0
 
         last_iter_end = time.time()
 
