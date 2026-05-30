@@ -32,7 +32,7 @@ from torchrl.envs.libs.pettingzoo import PettingZooWrapper
 from torchrl.envs.utils import ExplorationType, set_exploration_type, step_mdp
 from torchrl.modules import MultiAgentMLP, ProbabilisticActor
 
-from comm_env import BatteryShapeFormationEnv
+from comm_env import BatteryShapeFormationEnv, ShapeFormationEnv
 from formation_seq import available_shape_names
 
 GROUP = "drone"
@@ -81,13 +81,13 @@ def build_actor(obs_dim, n_actions, n_agents, hidden, device):
 
 
 def make_env(
-    seed, device, grid_size, n_agents, max_steps, shapes, comm_fail_prob,
+    seed, device, use_battery, grid_size, n_agents, max_steps, shapes, comm_fail_prob,
     completion_reward, wind_prob, wind_strength, randomize_wind,
     initial_battery, hover_battery_cost, move_battery_cost, low_battery_move_penalty,
     random_shape_pool=None, random_path_length="3",
     randomize_comm_fail=False,
 ):
-    base = BatteryShapeFormationEnv(
+    common = dict(
         grid_size=grid_size,
         n_agents=n_agents,
         max_steps=max_steps,
@@ -99,13 +99,23 @@ def make_env(
         wind_strength=wind_strength,
         randomize_wind=randomize_wind,
         randomize_comm_fail=randomize_comm_fail,
-        initial_battery=initial_battery,
-        hover_battery_cost=hover_battery_cost,
-        move_battery_cost=move_battery_cost,
-        low_battery_move_penalty=low_battery_move_penalty,
         random_shape_pool=random_shape_pool,
         random_path_length=random_path_length,
     )
+    if use_battery:
+        # Battery-aware policy: episode can also end on a drained battery.
+        base = BatteryShapeFormationEnv(
+            **common,
+            initial_battery=initial_battery,
+            hover_battery_cost=hover_battery_cost,
+            move_battery_cost=move_battery_cost,
+            low_battery_move_penalty=low_battery_move_penalty,
+        )
+    else:
+        # Battery-less policy (trained with comm_train.py / ShapeFormationEnv).
+        # No battery state -> only the collision condition can end an episode
+        # early. Battery CLI args are ignored.
+        base = ShapeFormationEnv(**common)
     env = PettingZooWrapper(
         env=base,
         group_map={GROUP: list(base.possible_agents)},
@@ -142,15 +152,20 @@ def _snapshot_frame(base, target=None):
     if target is None:
         target = _target_snapshot(base)
     occupied = getattr(base, "last_occupied_count", 0)
-    return {
+    frame = {
         "positions": dict(base.agent_pos),
-        "batteries": dict(base.battery),
         "stages_completed": base.stage_done_count,
         "occupied_count": occupied,
         "best_occupied_count": getattr(base, "best_occupied_count", 0),
         "coverage": occupied / max(1, target["target_count"]),
         **target,
     }
+    # Battery-less envs (ShapeFormationEnv) have no .battery; omit the key so
+    # the GIF skips battery bars and stats.
+    batteries = getattr(base, "battery", None)
+    if batteries is not None:
+        frame["batteries"] = dict(batteries)
+    return frame
 
 
 def rollout(env, base, actor, exploration, max_steps, record=False):
@@ -162,6 +177,7 @@ def rollout(env, base, actor, exploration, max_steps, record=False):
     success = False
     # Default: the episode ran out of steps without crashing or finishing.
     end_reason = "timeout"
+    has_battery = hasattr(base, "battery")
 
     for _ in range(max_steps):
         # Snapshot the formation being formed BEFORE stepping; env.step() may
@@ -179,12 +195,12 @@ def rollout(env, base, actor, exploration, max_steps, record=False):
 
         done = bool(td.get(("next", GROUP, "done")).all().item())
         terminated = bool(td.get(("next", GROUP, "terminated")).any().item())
-        min_battery = min(base.battery.values())
+        min_battery = min(base.battery.values()) if has_battery else None
 
         # Strict termination order:
         #   1. Final formation completed this step -> success (wins ties).
         #   2. Any collision this step             -> crash failure.
-        #   3. Any drone fully drained             -> crash failure.
+        #   3. Any drone fully drained             -> crash failure (battery envs only).
         #   4. Env truncated (max steps)           -> timeout failure.
         if done and terminated:
             success = True
@@ -193,7 +209,7 @@ def rollout(env, base, actor, exploration, max_steps, record=False):
         if base.last_collision_count > 0:
             end_reason = "collision"
             break
-        if min_battery <= 0.0:
+        if has_battery and min_battery <= 0.0:
             end_reason = "battery_depleted"
             break
         if done:
@@ -216,8 +232,8 @@ def rollout(env, base, actor, exploration, max_steps, record=False):
         "target_count": len(base.target_cells),
         "coverage": getattr(base, "last_occupied_count", 0) / max(1, len(base.target_cells)),
         "best_coverage": getattr(base, "best_occupied_count", 0) / max(1, len(base.target_cells)),
-        "final_batteries": dict(base.battery),
-        "min_battery": min(base.battery.values()),
+        "final_batteries": dict(base.battery) if has_battery else {},
+        "min_battery": (min(base.battery.values()) if has_battery else None),
         "history": history,
     }
 
@@ -321,24 +337,26 @@ def save_gif(grid_size: int, history, path: Path, fps: int = 4) -> None:
                     linewidth=0.5, alpha=0.85,
                 ))
 
-            batt = float(batteries.get(agent, 0.0)) if batteries else 0.0
-            bar_x = c - bar_w / 2.0
-            bar_y = r - bar_y_offset - bar_h
-            ax.add_patch(patches.Rectangle(
-                (bar_x, bar_y), bar_w, bar_h,
-                facecolor=BAR_BG, edgecolor=BAR_EDGE, linewidth=0.4,
-            ))
-            fill_w = bar_w * max(0.0, min(1.0, batt))
-            if fill_w > 0:
+            # Battery bar only for battery-aware envs (frames carry batteries).
+            if batteries:
+                batt = float(batteries.get(agent, 0.0))
+                bar_x = c - bar_w / 2.0
+                bar_y = r - bar_y_offset - bar_h
                 ax.add_patch(patches.Rectangle(
-                    (bar_x, bar_y), fill_w, bar_h,
-                    facecolor=_battery_color(batt), edgecolor="none",
+                    (bar_x, bar_y), bar_w, bar_h,
+                    facecolor=BAR_BG, edgecolor=BAR_EDGE, linewidth=0.4,
                 ))
-            ax.text(
-                c + bar_w / 2.0 + 0.05, bar_y + bar_h / 2.0,
-                f"{batt * 100:.0f}%",
-                color="#dddddd", fontsize=5.5, va="center", ha="left",
-            )
+                fill_w = bar_w * max(0.0, min(1.0, batt))
+                if fill_w > 0:
+                    ax.add_patch(patches.Rectangle(
+                        (bar_x, bar_y), fill_w, bar_h,
+                        facecolor=_battery_color(batt), edgecolor="none",
+                    ))
+                ax.text(
+                    c + bar_w / 2.0 + 0.05, bar_y + bar_h / 2.0,
+                    f"{batt * 100:.0f}%",
+                    color="#dddddd", fontsize=5.5, va="center", ha="left",
+                )
 
     anim = FuncAnimation(fig, draw, frames=len(history), interval=1000 // fps)
     anim.save(str(path), writer=PillowWriter(fps=fps))
@@ -372,6 +390,15 @@ def main() -> None:
         help="Sample comm drop rate from [0, comm_fail_prob] each episode.",
     )
     parser.add_argument("--completion-reward", type=float, default=30.0)
+
+    parser.add_argument(
+        "--no-battery", action="store_true",
+        help=(
+            "Evaluate a battery-LESS policy (trained with comm_train.py / "
+            "ShapeFormationEnv). The episode then ends only on a collision; "
+            "battery args and the battery-depleted condition are ignored."
+        ),
+    )
 
     parser.add_argument(
         "--initial-battery", type=float,
@@ -435,11 +462,14 @@ def main() -> None:
     orig_stdout = sys.stdout
     sys.stdout = _Tee(orig_stdout, eval_log)
 
+    use_battery = not args.no_battery
+
     try:
         device = torch.device(args.device)
         torch.manual_seed(args.seed)
 
         env_kwargs = dict(
+            use_battery=use_battery,
             device=device,
             grid_size=args.grid_size,
             n_agents=args.n_agents,
@@ -464,7 +494,19 @@ def main() -> None:
         with torch.no_grad():
             actor(env.reset())
         state = torch.load(args.ckpt, map_location=device)
-        actor.load_state_dict(state["actor"])
+        try:
+            actor.load_state_dict(state["actor"])
+        except (RuntimeError, ValueError) as e:
+            other = "--no-battery (battery-less)" if use_battery else "battery-aware (drop --no-battery)"
+            raise SystemExit(
+                f"\nFailed to load checkpoint into a "
+                f"{'battery-aware' if use_battery else 'battery-less'} model "
+                f"(obs_dim={base.obs_dim}).\n"
+                f"This usually means the checkpoint was trained with the other "
+                f"environment. Try the opposite mode: {other}.\n"
+                f"Also confirm --n-agents/--grid-size/--shapes match the training run.\n"
+                f"Original error: {e}"
+            )
         actor.eval()
 
         exploration = ExplorationType.MODE if args.greedy else ExplorationType.RANDOM
@@ -475,28 +517,34 @@ def main() -> None:
 
         successes = sum(run["success"] for run in runs)
         reasons = Counter(r["end_reason"] for r in runs)
-        mean_batt = np.mean(
-            [np.mean(list(r["final_batteries"].values())) for r in runs]
-        )
-        std_batt = np.mean(
-            [np.std(list(r["final_batteries"].values())) for r in runs]
-        )
-        min_batt = np.mean(
-            [np.min(list(r["final_batteries"].values())) for r in runs]
+        if use_battery:
+            mean_batt = np.mean(
+                [np.mean(list(r["final_batteries"].values())) for r in runs]
+            )
+            std_batt = np.mean(
+                [np.std(list(r["final_batteries"].values())) for r in runs]
+            )
+            min_batt = np.mean(
+                [np.min(list(r["final_batteries"].values())) for r in runs]
+            )
+        end_clause = (
+            "any collision or a drained battery" if use_battery else "any collision"
         )
         print(
             f"=== Strict-termination eval over {args.n_episodes} episodes "
             f"({'greedy' if args.greedy else 'stochastic'}, "
             f"comm_fail_prob={args.comm_fail_prob}, wind_prob={args.wind_prob}) ==="
         )
-        print("  (episode ends immediately on any collision or a drained battery)")
+        print(f"  (episode ends immediately on {end_clause})")
+        print(f"  Mode                   : {'battery-aware' if use_battery else 'battery-less'}")
         print(f"  Grid / agents          : {args.grid_size}x{args.grid_size}, n_agents={args.n_agents}")
         print(f"  Shapes path            : {base.formation_path.label}")
-        print(
-            f"  Battery cfg            : init={args.initial_battery}, "
-            f"hover={args.hover_battery_cost}, move={args.move_battery_cost}, "
-            f"low_move_penalty={args.low_battery_move_penalty}"
-        )
+        if use_battery:
+            print(
+                f"  Battery cfg            : init={args.initial_battery}, "
+                f"hover={args.hover_battery_cost}, move={args.move_battery_cost}, "
+                f"low_move_penalty={args.low_battery_move_penalty}"
+            )
         print(f"  Overall success rate   : {successes / len(runs):.1%}")
         print("  End reasons:")
         for reason in END_REASONS:
@@ -508,9 +556,10 @@ def main() -> None:
         print(f"  Overall mean reward    : {np.mean([r['total_reward'] for r in runs]):+.3f}")
         print(f"  Overall mean ep length : {np.mean([r['steps'] for r in runs]):.1f}")
         print(f"  Overall mean collisions: {np.mean([r['collisions'] for r in runs]):.2f}")
-        print(f"  Final battery mean     : {mean_batt * 100:.1f}%")
-        print(f"  Final battery min      : {min_batt * 100:.1f}%")
-        print(f"  Final battery std-dev  : {std_batt * 100:.1f}% (lower = more even drain)")
+        if use_battery:
+            print(f"  Final battery mean     : {mean_batt * 100:.1f}%")
+            print(f"  Final battery min      : {min_batt * 100:.1f}%")
+            print(f"  Final battery std-dev  : {std_batt * 100:.1f}% (lower = more even drain)")
 
         # ---- Random-pool generalization breakdown ------------------------
         if random_shape_pool is not None:
@@ -559,28 +608,34 @@ def main() -> None:
                 demo_env, demo_base, actor, exploration,
                 max_steps=demo_base.max_steps, record=True,
             )
+            min_batt_str = (
+                f", min_batt={demo['min_battery'] * 100:.1f}%"
+                if demo["min_battery"] is not None else ""
+            )
             print(
                 f"\n=== Demo episode: shapes='{demo['shapes']}', "
                 f"end_reason={demo['end_reason']}, success={demo['success']}, "
                 f"stages={demo['stages_completed']}/{demo['num_stages']}, "
                 f"coverage={demo['occupied_count']}/{demo['target_count']} "
                 f"best={demo['best_occupied_count']}/{demo['target_count']}, "
-                f"reward={demo['total_reward']:+.2f}, steps={demo['steps']}, "
-                f"min_batt={demo['min_battery'] * 100:.1f}% ==="
+                f"reward={demo['total_reward']:+.2f}, steps={demo['steps']}"
+                f"{min_batt_str} ==="
             )
             if args.render:
                 for step, frame in enumerate(demo["history"]):
                     batts = frame.get("batteries", {})
-                    batt_line = "  ".join(
-                        f"{a.split('_')[-1]}:{batts[a] * 100:5.1f}%"
-                        for a in sorted(batts)
-                    )
-                    print(
+                    line = (
                         f"\nstep {step}/{len(demo['history']) - 1} | "
                         f"stage {frame['stage_idx'] + 1}/{frame['num_stages']} | "
-                        f"target='{frame['target_shape']}'\n"
-                        f"  batt: {batt_line}"
+                        f"target='{frame['target_shape']}'"
                     )
+                    if batts:
+                        batt_line = "  ".join(
+                            f"{a.split('_')[-1]}:{batts[a] * 100:5.1f}%"
+                            for a in sorted(batts)
+                        )
+                        line += f"\n  batt: {batt_line}"
+                    print(line)
                     time.sleep(args.render_delay)
             if args.save_gif:
                 gif_path = Path(args.save_gif)
