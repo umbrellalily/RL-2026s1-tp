@@ -1,20 +1,31 @@
-"""Strict-termination evaluation of a battery-aware MAPPO policy.
+"""Strict-termination evaluation of a MAPPO formation policy.
 
-This mirrors comm_eval_battery.py but enforces hard failure conditions: the
+This mirrors comm_eval[_battery].py but enforces hard failure conditions: the
 episode ends *immediately* the moment
 
   * any collision occurs (two drones contend for the same cell or try to swap),
     or
-  * any drone's battery reaches 0,
+  * any drone's battery reaches 0 (battery-aware mode only),
 
 and that episode is recorded as a failure (unless the final formation was
 completed on the very same step, which still counts as a success). This is the
 "no crashes allowed" evaluation regime -- it measures whether the policy can
 finish the formation path without ever bumping a drone or running one flat.
 
+By default a battery-LESS policy (comm_train.py / ShapeFormationEnv) is
+assumed. Pass --battery to evaluate a battery-aware policy
+(comm_train_battery.py / BatteryShapeFormationEnv), which adds the
+battery-depleted termination, battery GIF bars, and battery stats.
+
 Examples:
-    python comm_eval_strict.py --ckpt checkpoints_comm20_battery/ckpt_60.pt \\
+    # battery-less policy (only collisions end the episode)
+    python comm_eval_strict.py --ckpt checkpoints_comm20/ckpt_60.pt \\
         --shapes GROUND,X --greedy --save-gif demo_strict.gif
+
+    # battery-aware policy (collisions OR a drained battery end the episode)
+    python comm_eval_strict.py --battery \\
+        --ckpt checkpoints_comm20_battery/ckpt_60.pt \\
+        --shapes GROUND,X --greedy --save-gif demo_strict_battery.gif
 """
 from __future__ import annotations
 
@@ -392,11 +403,13 @@ def main() -> None:
     parser.add_argument("--completion-reward", type=float, default=30.0)
 
     parser.add_argument(
-        "--no-battery", action="store_true",
+        "--battery", action="store_true",
         help=(
-            "Evaluate a battery-LESS policy (trained with comm_train.py / "
-            "ShapeFormationEnv). The episode then ends only on a collision; "
-            "battery args and the battery-depleted condition are ignored."
+            "Evaluate a battery-aware policy (trained with comm_train_battery.py "
+            "/ BatteryShapeFormationEnv). Adds the battery-depleted termination "
+            "condition, battery GIF bars, and battery stats. Without this flag a "
+            "battery-LESS policy (comm_train.py / ShapeFormationEnv) is assumed "
+            "and the episode ends early only on a collision."
         ),
     )
 
@@ -462,7 +475,7 @@ def main() -> None:
     orig_stdout = sys.stdout
     sys.stdout = _Tee(orig_stdout, eval_log)
 
-    use_battery = not args.no_battery
+    use_battery = args.battery
 
     try:
         device = torch.device(args.device)
@@ -497,7 +510,7 @@ def main() -> None:
         try:
             actor.load_state_dict(state["actor"])
         except (RuntimeError, ValueError) as e:
-            other = "--no-battery (battery-less)" if use_battery else "battery-aware (drop --no-battery)"
+            other = "drop --battery (battery-less)" if use_battery else "add --battery (battery-aware)"
             raise SystemExit(
                 f"\nFailed to load checkpoint into a "
                 f"{'battery-aware' if use_battery else 'battery-less'} model "
