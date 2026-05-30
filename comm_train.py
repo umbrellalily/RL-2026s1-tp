@@ -46,6 +46,7 @@ def make_env(
     completion_reward: float,
     assigned_target_reward: float,
     coverage_delta_reward: float,
+    coverage_step_reward: float,
     hover_penalty: float,
     shapes: list[str] | None = None,
     wind_prob: float = 0.0,
@@ -62,6 +63,7 @@ def make_env(
         completion_reward=completion_reward,
         assigned_target_reward=assigned_target_reward,
         coverage_delta_reward=coverage_delta_reward,
+        coverage_step_reward=coverage_step_reward,
         hover_penalty=hover_penalty,
         shapes=shapes,
         wind_prob=wind_prob,
@@ -149,7 +151,7 @@ def main() -> None:
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--lmbda", type=float, default=0.95)
     parser.add_argument("--clip-eps", type=float, default=0.2)
-    parser.add_argument("--ent-coef", type=float, default=0.01)
+    parser.add_argument("--ent-coef", type=float, default=0.02)
     parser.add_argument("--vf-coef", type=float, default=0.5)
     parser.add_argument("--max-grad-norm", type=float, default=1.0)
     parser.add_argument("--hidden", type=int, default=128)
@@ -178,7 +180,7 @@ def main() -> None:
     parser.add_argument(
         "--assigned-target-reward",
         type=float,
-        default=0.3,
+        default=0.4,
         help="Extra per-step reward when a drone is exactly on its assigned target cell.",
     )
     parser.add_argument(
@@ -186,6 +188,17 @@ def main() -> None:
         type=float,
         default=0.2,
         help="Team reward multiplier when the stage reaches a new best target coverage count.",
+    )
+    parser.add_argument(
+        "--coverage-step-reward",
+        type=float,
+        default=0.01,
+        help=(
+            "Dense per-step team reward = this x (#target cells currently occupied). "
+            "Paid EVERY step (unlike --coverage-delta-reward), so an unfilled cell is "
+            "a persistent loss -> pressures drones to fill/hold the last cells instead "
+            "of freezing one step short. 0 disables."
+        ),
     )
     parser.add_argument(
         "--hover-penalty",
@@ -302,6 +315,7 @@ def main() -> None:
         completion_reward=args.completion_reward,
         assigned_target_reward=args.assigned_target_reward,
         coverage_delta_reward=args.coverage_delta_reward,
+        coverage_step_reward=args.coverage_step_reward,
         hover_penalty=args.hover_penalty,
         shapes=shapes,
         wind_prob=args.wind_prob,
@@ -331,6 +345,7 @@ def main() -> None:
         completion_reward=args.completion_reward,
         assigned_target_reward=args.assigned_target_reward,
         coverage_delta_reward=args.coverage_delta_reward,
+        coverage_step_reward=args.coverage_step_reward,
         hover_penalty=args.hover_penalty,
         shapes=shapes,
         wind_prob=args.wind_prob,
@@ -347,7 +362,8 @@ def main() -> None:
         f"max_steps={args.max_steps}, obs_dim={obs_dim}, shapes='{probe.formation_path.label}', "
         f"completion_reward={args.completion_reward}, "
         f"assigned_target_reward={args.assigned_target_reward}, "
-        f"coverage_delta_reward={args.coverage_delta_reward}, hover_penalty={args.hover_penalty}"
+        f"coverage_delta_reward={args.coverage_delta_reward}, "
+        f"coverage_step_reward={args.coverage_step_reward}, hover_penalty={args.hover_penalty}"
     )
     if args.wind_prob > 0.0:
         print(

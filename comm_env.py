@@ -60,6 +60,7 @@ class ShapeFormationEnv(ParallelEnv):
         shaping_coef: float = 0.3,
         assigned_target_reward: float = 0.3,
         coverage_delta_reward: float = 0.2,
+        coverage_step_reward: float = 0.0,
         hover_penalty: float = 0.02,
         ground_row: int | None = None,
         ground_start_col: int | None = None,
@@ -82,6 +83,7 @@ class ShapeFormationEnv(ParallelEnv):
         self.shaping_coef = shaping_coef
         self.assigned_target_reward = assigned_target_reward
         self.coverage_delta_reward = coverage_delta_reward
+        self.coverage_step_reward = coverage_step_reward
         self.hover_penalty = hover_penalty
         self.ground_row = ground_row
         self.ground_start_col = ground_start_col
@@ -308,6 +310,16 @@ class ShapeFormationEnv(ParallelEnv):
 
         covered_count = len(occupied)
         self.last_occupied_count = covered_count
+
+        # Dense per-step coverage reward: a small shared reward proportional to
+        # how many target cells are occupied RIGHT NOW. Unlike coverage_delta_reward
+        # (paid once per new best), this is paid every step, so an unfilled cell is
+        # a persistent, ongoing loss for the whole team -- this pressures drones to
+        # fill AND hold the last cells instead of freezing one step short.
+        if self.coverage_step_reward != 0.0:
+            for agent in self.possible_agents:
+                rewards[agent] += self.coverage_step_reward * covered_count
+
         coverage_delta = max(0, covered_count - self.best_occupied_count)
         if coverage_delta > 0:
             for agent in self.possible_agents:
