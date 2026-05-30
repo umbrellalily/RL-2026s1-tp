@@ -169,6 +169,8 @@ def _snapshot_frame(base, target=None):
         "occupied_count": occupied,
         "best_occupied_count": getattr(base, "best_occupied_count", 0),
         "coverage": occupied / max(1, target["target_count"]),
+        # Agents that collided this step -> drawn red + CRASH banner in the GIF.
+        "collided_agents": list(getattr(base, "last_collision_agents", set())),
         **target,
     }
     # Battery-less envs (ShapeFormationEnv) have no .battery; omit the key so
@@ -265,8 +267,15 @@ def _battery_color(level: float) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-def save_gif(grid_size: int, history, path: Path, fps: int = 4) -> None:
-    """Render a battery-aware GIF with a per-drone battery bar at each step."""
+def save_gif(grid_size: int, history, path: Path, fps: int = 4,
+             end_reason: str | None = None, hold_seconds: float = 2.0) -> None:
+    """Render a GIF with a per-drone battery bar at each step.
+
+    When an episode ends on a crash (collision or drained battery), the
+    offending drones are drawn bright RED, a large banner ("CRASH" /
+    "BATTERY DEAD") is overlaid, and the final frame is held for
+    ``hold_seconds`` so the crash is clearly visible before the GIF ends.
+    """
     import matplotlib.patches as patches
     import matplotlib.pyplot as plt
     from matplotlib.animation import FuncAnimation, PillowWriter
@@ -278,6 +287,16 @@ def save_gif(grid_size: int, history, path: Path, fps: int = 4) -> None:
     LED_OFF_EDGE = "#555"
     BAR_BG = "#222230"
     BAR_EDGE = "#777"
+    CRASH_CORE = "#ff3b30"   # bright red drone core
+    CRASH_GLOW = "#ff5e57"   # red halo
+    CRASH_RIM = "#ffd2cf"    # pale red rim
+
+    # Hold the final frame on a crash so it doesn't flash by in one frame.
+    last = len(history) - 1
+    last_collided = bool(history[last].get("collided_agents")) if history else False
+    is_crash = last_collided or end_reason in ("collision", "battery_depleted")
+    hold = int(round(hold_seconds * fps)) if is_crash else 0
+    frame_order = list(range(len(history))) + [last] * hold
 
     fig, ax = plt.subplots(figsize=(7.5, 7.5), facecolor="#0a0a14")
     ax.set_facecolor("#0a0a14")
@@ -329,9 +348,32 @@ def save_gif(grid_size: int, history, path: Path, fps: int = 4) -> None:
         bar_w = 0.9
         bar_h = 0.16
         bar_y_offset = 0.55
+        # Crashed drones this frame: collided, plus any with a dead battery.
+        collided = set(frame.get("collided_agents", []))
+        dead_batt = {a for a, v in batteries.items() if v <= 0.0} if batteries else set()
+        crashed = collided | dead_batt
         for agent, (r, c) in frame["positions"].items():
-            led_on = (r, c) in target_set
-            if led_on:
+            if agent in crashed:
+                # Bright red drone + red halo so the collision point pops.
+                for glow_r, glow_alpha in [(0.95, 0.18), (0.72, 0.28), (0.52, 0.45)]:
+                    ax.add_patch(patches.Circle(
+                        (c, r), glow_r,
+                        facecolor=CRASH_GLOW, edgecolor="none", alpha=glow_alpha,
+                    ))
+                ax.add_patch(patches.Circle(
+                    (c, r), 0.40,
+                    facecolor=CRASH_CORE, edgecolor=CRASH_RIM, linewidth=2.0,
+                ))
+                # Red X mark at the crash cell.
+                ax.plot(
+                    [c - 0.22, c + 0.22], [r - 0.22, r + 0.22],
+                    color="#ffffff", linewidth=1.8, solid_capstyle="round",
+                )
+                ax.plot(
+                    [c - 0.22, c + 0.22], [r + 0.22, r - 0.22],
+                    color="#ffffff", linewidth=1.8, solid_capstyle="round",
+                )
+            elif (r, c) in target_set:
                 for glow_r, glow_alpha in [(0.85, 0.10), (0.65, 0.20), (0.48, 0.35)]:
                     ax.add_patch(patches.Circle(
                         (c, r), glow_r,
@@ -369,7 +411,19 @@ def save_gif(grid_size: int, history, path: Path, fps: int = 4) -> None:
                     color="#dddddd", fontsize=5.5, va="center", ha="left",
                 )
 
-    anim = FuncAnimation(fig, draw, frames=len(history), interval=1000 // fps)
+        # Crash banner overlaid on top of everything.
+        if crashed:
+            banner = "CRASH!" if collided else "BATTERY DEAD"
+            ax.text(
+                0.5, 0.5, banner,
+                transform=ax.transAxes, ha="center", va="center",
+                fontsize=46, fontweight="bold", color="#ff3b30", alpha=0.9,
+                bbox=dict(boxstyle="round,pad=0.4", facecolor="#0a0a14",
+                          edgecolor="#ff3b30", linewidth=2.5, alpha=0.75),
+                zorder=10,
+            )
+
+    anim = FuncAnimation(fig, draw, frames=frame_order, interval=1000 // fps)
     anim.save(str(path), writer=PillowWriter(fps=fps))
     plt.close(fig)
 
@@ -654,7 +708,8 @@ def main() -> None:
                 gif_path = Path(args.save_gif)
                 if gif_path.parent != Path(""):
                     gif_path.parent.mkdir(parents=True, exist_ok=True)
-                save_gif(args.grid_size, demo["history"], gif_path)
+                save_gif(args.grid_size, demo["history"], gif_path,
+                         end_reason=demo["end_reason"])
                 print(f"\nSaved GIF -> {gif_path}")
     finally:
         sys.stdout = orig_stdout

@@ -163,6 +163,9 @@ class ShapeFormationEnv(ParallelEnv):
         self.stage_idx: int = 0
         self.stage_done_count: int = 0
         self.last_collision_count: int = 0
+        # Agents that collided on the most recent step (same-cell or swap).
+        # Exposed for visualization/eval; training does not read it.
+        self.last_collision_agents: set[str] = set()
         self.step_count: int = 0
         self.assigned_target_cell: dict[str, tuple[int, int]] = {}
         self.prev_per_drone_dists: dict[str, float] = {}
@@ -183,6 +186,7 @@ class ShapeFormationEnv(ParallelEnv):
         self.agents = list(self.possible_agents)
         self.step_count = 0
         self.last_collision_count = 0
+        self.last_collision_agents = set()
         self.stage_idx = 0
         self.stage_done_count = 0
 
@@ -287,6 +291,7 @@ class ShapeFormationEnv(ParallelEnv):
             new_pos[agent] = self.agent_pos[agent] if swap else pos
         self.agent_pos = new_pos
         self.last_collision_count = len(collisions)
+        self.last_collision_agents = set(collisions)
 
         # 3) Base rewards.
         rewards = {agent: -self.step_penalty for agent in self.possible_agents}
