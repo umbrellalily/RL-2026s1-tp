@@ -510,6 +510,13 @@ def main() -> None:
     cp_progress = 0.0
     es_hits = 0  # consecutive iters meeting the early-stop success threshold
     best_success = -1.0          # best batch success rate seen (for --save-best-above)
+    _best_path = save_dir / "ckpt_best.pt"
+    if _best_path.exists():      # restore prior best so a resumed (worse) run can't clobber it
+        try:
+            best_success = float(torch.load(_best_path, map_location="cpu").get("success", -1.0))
+            print(f"[best] resuming best-success tracking from prior best {best_success:.1%}")
+        except Exception:
+            pass
 
     for it, data in enumerate(collector):
         with torch.no_grad():
