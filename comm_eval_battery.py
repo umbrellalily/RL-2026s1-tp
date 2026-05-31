@@ -393,6 +393,16 @@ def main() -> None:
     parser.add_argument("--render-delay", type=float, default=0.3)
     parser.add_argument("--save-gif", type=str, default=None)
     parser.add_argument(
+        "--demo-tries",
+        type=int,
+        default=1,
+        help=(
+            "Episodes to try when picking the demo to render/GIF. 1 = the original "
+            "single greedy demo. >1 = search for a SUCCESSFUL episode (greedy first, "
+            "then stochastic with varied seeds); falls back to the best-coverage one."
+        ),
+    )
+    parser.add_argument(
         "--out", type=str, default="",
         help="Path to save eval output text (default: eval_battery_<ckpt_stem>.txt)",
     )
@@ -539,11 +549,25 @@ def main() -> None:
                     print(f"    {label}  failed {n_fail}/{len(rs)} times, mean coverage {avg_cov:.1%}")
 
         if args.render or args.save_gif:
-            demo_env, demo_base = make_env(seed=args.seed + 1, **env_kwargs)
-            demo = rollout(
-                demo_env, demo_base, actor, exploration,
-                max_steps=demo_base.max_steps, record=True,
-            )
+            # Pick the episode to record. demo-tries=1 keeps the original single
+            # greedy demo; >1 searches for a SUCCESSFUL episode (greedy first, then
+            # stochastic with varied seeds), else falls back to best coverage.
+            demo = best = None
+            for t in range(max(1, args.demo_tries)):
+                expl_t = exploration if t == 0 else ExplorationType.RANDOM
+                demo_env, demo_base = make_env(seed=args.seed + 1 + t, **env_kwargs)
+                d = rollout(demo_env, demo_base, actor, expl_t,
+                            max_steps=demo_base.max_steps, record=True)
+                if best is None or d["coverage"] > best["coverage"]:
+                    best = d
+                if d["success"]:
+                    demo = d
+                    print(f"[demo] success episode found (try {t + 1}, {'greedy' if t == 0 else 'stochastic'})")
+                    break
+            if demo is None:
+                demo = best
+                if args.demo_tries > 1:
+                    print(f"[demo] no success in {args.demo_tries} tries -> saving best-coverage ({demo['coverage']:.0%}) episode")
             print(
                 f"\n=== Demo episode: shapes='{demo['shapes']}', "
                 f"success={demo['success']}, stages={demo['stages_completed']}/{demo['num_stages']}, "
