@@ -510,7 +510,6 @@ def main() -> None:
     cp_progress = 0.0
     es_hits = 0  # consecutive iters meeting the early-stop success threshold
     best_success = -1.0          # best batch success rate seen (for --save-best-above)
-    best_offsched_path = None    # last off-grid "best" ckpt saved (to replace it)
 
     for it, data in enumerate(collector):
         with torch.no_grad():
@@ -582,18 +581,19 @@ def main() -> None:
         if (it + 1) % args.ckpt_every == 0:
             torch.save({"actor": actor.state_dict(), "critic": critic.state_dict()}, ckpt_path)
 
-        # Off-schedule "best" save: success clears --save-best-above AND beats the
-        # previous best -> keep that ckpt, replacing the previous off-grid best.
+        # Best-success snapshot: when success clears --save-best-above AND beats the
+        # previous best, (over)write a dedicated ckpt_best.pt. Evaluation prefers it.
+        # It has no digit name so latest_ckpt ignores it -> resume stays on the most-
+        # trained ckpt, and a later lower-success ckpt can't shadow the best.
         if (args.save_best_above > 0 and n_finished_entries > 0
                 and success_rate >= args.save_best_above and success_rate > best_success):
             best_success = success_rate
-            if not ckpt_path.exists():
-                torch.save({"actor": actor.state_dict(), "critic": critic.state_dict()}, ckpt_path)
-                if (best_offsched_path is not None and best_offsched_path != ckpt_path
-                        and best_offsched_path.exists()):
-                    best_offsched_path.unlink()
-                best_offsched_path = ckpt_path
-            print(f"[best] success {success_rate:.1%} (>= {args.save_best_above:.0%}) -> kept {ckpt_path.name}")
+            torch.save(
+                {"actor": actor.state_dict(), "critic": critic.state_dict(),
+                 "success": success_rate, "iter": global_iter},
+                save_dir / "ckpt_best.pt",
+            )
+            print(f"[best] success {success_rate:.1%} (>= {args.save_best_above:.0%}) -> saved ckpt_best.pt")
 
         # Early stop: success rate at/above threshold for `patience` iters in a row.
         if args.early_stop_success > 0 and n_finished_entries > 0 and success_rate >= args.early_stop_success:
